@@ -58,6 +58,18 @@ supabase/
 3. Rode a migração `supabase/migrations/0001_init.sql` no seu projeto Supabase
    (SQL Editor ou Supabase CLI).
 
+## Painel de coleta (sem terminal)
+
+Acesse **`/admin`** no app. Fluxo em 2 passos, com trava de custo embutida:
+
+1. **Buscar anúncios (grátis):** informa a URL de listagem e vê quantos
+   anúncios o site tem — nenhuma chamada de IA, custo zero.
+2. **Coletar:** escolhe **quantos** processar e o **modelo** da IA; o painel
+   processa um por vez, com barra de progresso e **custo em US$ ao vivo**.
+
+As rotas de coleta são protegidas por senha (`ADMIN_TOKEN`). Defina-a no
+servidor e digite a mesma no campo "senha" do painel.
+
 ## Rodando
 
 Servidor de desenvolvimento (o painel):
