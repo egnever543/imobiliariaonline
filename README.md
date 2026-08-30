@@ -80,11 +80,29 @@ Verificação de tipos:
 npm run typecheck
 ```
 
-## Custo da extração por IA
+## Custo da extração por IA — como testar sem susto
 
-`EXTRACTION_MODEL` (em `.env.local`) controla o modelo. O padrão é
-`claude-opus-5` (máxima qualidade). Para **alto volume**, troque por um modelo
-mais barato — ex. `claude-haiku-4-5` — já que o custo é por anúncio processado.
+O único gasto de API é a IA lendo cada anúncio. Há três travas:
+
+1. **Dry-run (custo ZERO):** vê quantos anúncios um site tem, sem chamar a IA.
+   ```bash
+   npm run ingest -- --url "https://SITE/terrenos" --city itapoa-sc --dry-run
+   ```
+2. **Limite automático:** sem `--limit`, a coleta processa no máximo **10**
+   anúncios. Use `--limit N` para outro valor, ou `--all` para tudo (cuidado).
+3. **Relatório de custo:** ao final de cada coleta real, imprime os tokens
+   usados e o **custo estimado em US$**.
+
+Modelo: `EXTRACTION_MODEL` (padrão `claude-opus-5`). Para testes/volume, use
+`claude-haiku-4-5` (bem mais barato) — via `.env.local` ou `--model` na CLI:
+```bash
+npm run ingest -- --url "https://SITE/terrenos" --city itapoa-sc \
+  --model claude-haiku-4-5 --limit 5
+```
+
+> **Trava final (recomendada):** no console da Anthropic
+> (console.anthropic.com → Limits), defina um **limite de gasto mensal**. É o
+> teto absoluto — impossível passar dele por acidente.
 
 ## Próximas etapas
 

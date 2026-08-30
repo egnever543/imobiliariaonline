@@ -7,6 +7,7 @@ import { fetchReadable } from "./jina";
 import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
+import { estimateCostUSD } from "./cost";
 import { getServiceClient } from "../supabase/server";
 import type { AgencySource, CanonicalListing } from "./types";
 
@@ -16,6 +17,23 @@ export interface IngestResult {
   processed: number;
   saved: number;
   errors: string[];
+  // contabilidade de custo da IA
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUSD: number;
+  dryRun: boolean;
+}
+
+export interface IngestOptions {
+  /** Pausa entre anúncios em ms (padrão 1s). */
+  delayMs?: number;
+  /** Máximo de anúncios a processar (proteção contra gasto acidental). */
+  limit?: number;
+  /**
+   * Se true, NÃO chama a IA nem busca os anúncios: só lista quantos links
+   * existem. Custo ZERO. Use para conferir o volume antes de gastar.
+   */
+  dryRun?: boolean;
 }
 
 /** Executa uma pausa (para respeitar rate limits). */
@@ -52,7 +70,7 @@ async function saveListing(listing: CanonicalListing): Promise<void> {
  */
 export async function ingestAgency(
   source: AgencySource,
-  { delayMs = 1000, limit }: { delayMs?: number; limit?: number } = {},
+  { delayMs = 1000, limit, dryRun = false }: IngestOptions = {},
 ): Promise<IngestResult> {
   const result: IngestResult = {
     listingUrl: source.listingUrl,
@@ -60,9 +78,13 @@ export async function ingestAgency(
     processed: 0,
     saved: 0,
     errors: [],
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCostUSD: 0,
+    dryRun,
   };
 
-  // 1. Página de listagem -> markdown
+  // 1. Página de listagem -> markdown (barato/grátis)
   const listingMd = await fetchReadable(source.listingUrl);
 
   // 2. Extrai os links de anúncio
@@ -71,19 +93,27 @@ export async function ingestAgency(
     sameHostAs: source.listingUrl,
   });
   result.linksFound = links.length;
-  if (limit) links = links.slice(0, limit);
+  if (limit != null) links = links.slice(0, limit);
 
-  // 3. Por anúncio: busca -> extrai -> normaliza -> grava
+  // Modo dry-run: para aqui. Nenhuma chamada de IA -> custo zero.
+  if (dryRun) return result;
+
+  // 3. Por anúncio: busca -> extrai (IA) -> normaliza -> grava
+  let model = "";
   for (const url of links) {
     try {
       const adMd = await fetchReadable(url);
-      const extracted = await extractListing(adMd);
+      const { listing, inputTokens, outputTokens, model: m } =
+        await extractListing(adMd);
       result.processed++;
-      if (!extracted) {
+      result.inputTokens += inputTokens;
+      result.outputTokens += outputTokens;
+      model = m;
+      if (!listing) {
         result.errors.push(`Sem JSON extraído: ${url}`);
         continue;
       }
-      const canonical = normalizeListing(extracted, source, url);
+      const canonical = normalizeListing(listing, source, url);
       await saveListing(canonical);
       result.saved++;
     } catch (err) {
@@ -92,5 +122,10 @@ export async function ingestAgency(
     if (delayMs) await sleep(delayMs);
   }
 
+  result.estimatedCostUSD = estimateCostUSD(
+    model,
+    result.inputTokens,
+    result.outputTokens,
+  );
   return result;
 }

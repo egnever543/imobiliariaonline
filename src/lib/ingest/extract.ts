@@ -5,9 +5,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ExtractedListing } from "./types";
 
-// Modelo configurável. Padrão: claude-opus-5 (máxima qualidade).
-// Para alto volume, defina EXTRACTION_MODEL=claude-haiku-4-5 (bem mais barato).
-const MODEL = process.env.EXTRACTION_MODEL || "claude-opus-5";
+// Modelo configurável (lido a cada chamada, para respeitar .env e overrides).
+// Padrão: claude-opus-5 (máxima qualidade).
+// Para alto volume/testes, use EXTRACTION_MODEL=claude-haiku-4-5 (bem mais barato).
+function currentModel(): string {
+  return process.env.EXTRACTION_MODEL || "claude-opus-5";
+}
 
 const SYSTEM = `Você é um assistente especializado em extração de dados de anúncios de imóveis no Brasil.
 
@@ -71,15 +74,21 @@ const EMPTY: ExtractedListing = {
   external_code: null,
 };
 
+export interface ExtractResult {
+  listing: ExtractedListing | null;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /**
  * Extrai os campos estruturados do texto de um anúncio.
- * Retorna null se a IA não devolver um JSON parseável.
+ * Retorna também o consumo de tokens, para contabilizar custo.
  */
-export async function extractListing(
-  adText: string,
-): Promise<ExtractedListing | null> {
+export async function extractListing(adText: string): Promise<ExtractResult> {
+  const model = currentModel();
   const msg = await getClient().messages.create({
-    model: MODEL,
+    model,
     max_tokens: 1024,
     system: SYSTEM,
     messages: [{ role: "user", content: adText.slice(0, 50_000) }],
@@ -90,10 +99,18 @@ export async function extractListing(
     .map((b) => b.text)
     .join("");
 
+  let listing: ExtractedListing | null = null;
   try {
     const parsed = JSON.parse(stripFences(text)) as Partial<ExtractedListing>;
-    return { ...EMPTY, ...parsed };
+    listing = { ...EMPTY, ...parsed };
   } catch {
-    return null;
+    listing = null;
   }
+
+  return {
+    listing,
+    model,
+    inputTokens: msg.usage?.input_tokens ?? 0,
+    outputTokens: msg.usage?.output_tokens ?? 0,
+  };
 }

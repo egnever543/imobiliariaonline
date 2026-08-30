@@ -34,6 +34,9 @@ function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
+function flag(name: string): boolean {
+  return process.argv.includes(`--${name}`);
+}
 
 async function main() {
   const url = arg("url");
@@ -80,19 +83,47 @@ async function main() {
   }
 
   const keywords = arg("keywords")?.split(",").map((s) => s.trim()) ?? [];
-  const limit = arg("limit") ? Number(arg("limit")) : undefined;
+  const dryRun = flag("dry-run");
+  // Trava de segurança: sem --limit e sem --all, processa no máximo 10.
+  const limit = arg("limit")
+    ? Number(arg("limit"))
+    : flag("all")
+      ? undefined
+      : 10;
 
-  console.log(`\n▶ Coletando ${url}\n  cidade=${citySlug} limite=${limit ?? "∞"}\n`);
+  // --model sobrescreve o modelo da IA só para esta execução
+  const model = arg("model");
+  if (model) process.env.EXTRACTION_MODEL = model;
+
+  const modo = dryRun ? "DRY-RUN (custo ZERO)" : "COLETA REAL";
+  console.log(
+    `\n▶ ${modo}\n  url=${url}\n  cidade=${citySlug}  limite=${limit ?? "TODOS"}` +
+      (dryRun ? "" : `\n  modelo IA=${process.env.EXTRACTION_MODEL || "claude-opus-5"}`) +
+      "\n",
+  );
 
   const result = await ingestAgency(
     { cityId: city.id, agencyId, listingUrl: url, keywords },
-    { limit },
+    { limit, dryRun },
   );
 
-  console.log("\n─── Resultado ───");
-  console.log(`  links encontrados: ${result.linksFound}`);
-  console.log(`  processados:       ${result.processed}`);
-  console.log(`  salvos:            ${result.saved}`);
+  console.log("─── Resultado ───");
+  console.log(`  links de anúncio encontrados: ${result.linksFound}`);
+  if (dryRun) {
+    console.log(
+      `\n  (dry-run: nada foi processado nem gasto)\n` +
+        `  Para coletar de verdade, rode sem --dry-run e com --limit N.`,
+    );
+    return;
+  }
+  console.log(`  processados: ${result.processed}`);
+  console.log(`  salvos:      ${result.saved}`);
+  console.log(
+    `  tokens IA:   ${result.inputTokens} in / ${result.outputTokens} out`,
+  );
+  console.log(
+    `  custo estimado: US$ ${result.estimatedCostUSD.toFixed(4)}`,
+  );
   if (result.errors.length) {
     console.log(`  erros (${result.errors.length}):`);
     result.errors.slice(0, 10).forEach((e) => console.log(`    - ${e}`));
