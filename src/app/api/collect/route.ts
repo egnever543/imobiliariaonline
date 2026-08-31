@@ -28,6 +28,8 @@ export async function POST(req: Request) {
       agencyId: body.agencyId ?? null,
       listingUrl: body.listingUrl ?? "",
       keywords: [],
+      cityName: body.cityName ?? null,
+      state: body.uf ?? null,
     },
     body.url,
   );

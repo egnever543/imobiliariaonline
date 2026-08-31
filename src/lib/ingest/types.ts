@@ -24,6 +24,9 @@ export interface CanonicalListing extends ExtractedListing {
   agency_id: string | null;
   source_url: string;
   dedup_key: string | null;
+  lat: number | null;
+  lng: number | null;
+  geo_method: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -38,4 +41,7 @@ export interface AgencySource {
    * Ex: ['terreno', 'imovel', 'casa']. Vazio = aceita qualquer link interno.
    */
   keywords?: string[];
+  /** Nome/UF da cidade — usados para geocodificar os endereços. */
+  cityName?: string | null;
+  state?: string | null;
 }

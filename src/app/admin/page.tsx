@@ -143,6 +143,8 @@ export default function Admin() {
             agencyId: disc.agencyId,
             listingUrl,
             model,
+            cityName,
+            uf,
           }),
         });
         const data: CollectResp = await res.json();
@@ -170,8 +172,9 @@ export default function Admin() {
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px 96px" }}>
       <a href="/" style={{ fontSize: 13 }}>
-        ← painel
-      </a>
+        ← início
+      </a>{" "}
+      · <a href="/mapa" style={{ fontSize: 13 }}>ver mapa</a>
       <h1 style={{ fontSize: 26, margin: "8px 0 4px" }}>Coletar imóveis</h1>
       <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14 }}>
         Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo o

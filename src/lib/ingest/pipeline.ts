@@ -10,6 +10,7 @@ import { fetchReadable } from "./jina";
 import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
+import { geocode } from "./geocode";
 import { estimateCostUSD } from "./cost";
 import { getServiceClient } from "../supabase/server";
 import type { AgencySource, CanonicalListing } from "./types";
@@ -93,7 +94,24 @@ export async function ingestOne(
         estimatedCostUSD,
       };
     }
-    await saveListing(normalizeListing(listing, source, url));
+
+    const canonical = normalizeListing(listing, source, url);
+
+    // geocodifica o endereço (não falha a coleta se não achar coordenadas)
+    const geo = await geocode({
+      street: listing.street,
+      street_number: listing.street_number,
+      neighborhood: listing.neighborhood,
+      cityName: source.cityName,
+      state: source.state,
+    });
+    if (geo) {
+      canonical.lat = geo.lat;
+      canonical.lng = geo.lng;
+      canonical.geo_method = geo.method;
+    }
+
+    await saveListing(canonical);
     return { url, saved: true, model, inputTokens, outputTokens, estimatedCostUSD };
   } catch (err) {
     return {

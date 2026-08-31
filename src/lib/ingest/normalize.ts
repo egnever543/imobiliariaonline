@@ -62,6 +62,9 @@ export function normalizeListing(
     agency_id: source.agencyId,
     source_url: sourceUrl,
     dedup_key: dedupKey(extracted),
+    lat: null,
+    lng: null,
+    geo_method: null,
     raw: { extracted: extracted as unknown as Record<string, unknown> },
   };
 }

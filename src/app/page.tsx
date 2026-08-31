@@ -60,22 +60,39 @@ export default async function Home() {
         inteligência de mercado. Este é o esqueleto do produto.
       </p>
 
-      <a
-        href="/admin"
-        style={{
-          display: "inline-block",
-          marginTop: 12,
-          padding: "8px 14px",
-          borderRadius: 8,
-          background: "var(--accent)",
-          color: "#fff",
-          fontSize: 14,
-          fontWeight: 600,
-          textDecoration: "none",
-        }}
-      >
-        Abrir painel de coleta →
-      </a>
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <a
+          href="/mapa"
+          style={{
+            display: "inline-block",
+            padding: "8px 14px",
+            borderRadius: 8,
+            background: "var(--accent)",
+            color: "#fff",
+            fontSize: 14,
+            fontWeight: 600,
+            textDecoration: "none",
+          }}
+        >
+          Ver mapa →
+        </a>
+        <a
+          href="/admin"
+          style={{
+            display: "inline-block",
+            padding: "8px 14px",
+            borderRadius: 8,
+            background: "transparent",
+            border: "1px solid var(--border)",
+            color: "var(--ink)",
+            fontSize: 14,
+            fontWeight: 600,
+            textDecoration: "none",
+          }}
+        >
+          Painel de coleta
+        </a>
+      </div>
 
       {stats ? (
         <div style={{ display: "flex", gap: 12, marginTop: 32 }}>
