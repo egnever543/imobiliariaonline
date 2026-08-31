@@ -174,7 +174,8 @@ export default function Admin() {
       <a href="/" style={{ fontSize: 13 }}>
         ← início
       </a>{" "}
-      · <a href="/mapa" style={{ fontSize: 13 }}>ver mapa</a>
+      · <a href="/mapa" style={{ fontSize: 13 }}>ver mapa</a> ·{" "}
+      <a href="/admin/geo" style={{ fontSize: 13 }}>corrigir localização</a>
       <h1 style={{ fontSize: 26, margin: "8px 0 4px" }}>Coletar imóveis</h1>
       <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14 }}>
         Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo o

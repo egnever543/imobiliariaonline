@@ -55,6 +55,11 @@ export default async function Mapa() {
             ? ` · ${total - withCoords.length} sem coordenadas`
             : ""}
         </div>
+        {total > withCoords.length && (
+          <a href="/admin/geo" style={{ fontSize: 12, color: "var(--accent)" }}>
+            corrigir os sem localização →
+          </a>
+        )}
       </div>
 
       {withCoords.length === 0 && (
