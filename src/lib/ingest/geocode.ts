@@ -17,18 +17,25 @@ export interface GeoInput {
   state?: string | null;
 }
 
-function buildQuery(input: GeoInput): { q: string; method: string } | null {
+// Gera candidatos de busca, do mais específico ao mais amplo. Tentamos um a
+// um e devolvemos o primeiro que o geocoder reconhecer.
+function buildQueries(input: GeoInput): { q: string; method: string }[] {
   const city = [input.cityName, input.state].filter(Boolean).join(" - ");
+  const out: { q: string; method: string }[] = [];
   if (input.street) {
     const rua = [input.street, input.street_number].filter(Boolean).join(", ");
-    const q = [rua, input.neighborhood, city, "Brasil"].filter(Boolean).join(", ");
-    return { q, method: input.street_number ? "endereco_completo" : "rua" };
+    out.push({
+      q: [rua, input.neighborhood, city, "Brasil"].filter(Boolean).join(", "),
+      method: input.street_number ? "endereco_completo" : "rua",
+    });
   }
   if (input.neighborhood) {
-    const q = [input.neighborhood, city, "Brasil"].filter(Boolean).join(", ");
-    return { q, method: "bairro" };
+    out.push({
+      q: [input.neighborhood, city, "Brasil"].filter(Boolean).join(", "),
+      method: "bairro",
+    });
   }
-  return null;
+  return out;
 }
 
 async function geocodeGoogle(q: string, key: string): Promise<[number, number] | null> {
@@ -44,7 +51,7 @@ async function geocodeGoogle(q: string, key: string): Promise<[number, number] |
 }
 
 async function geocodeNominatim(q: string): Promise<[number, number] | null> {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, {
     headers: { "User-Agent": "radar-imobiliario/0.1 (contato via app)" },
   });
@@ -54,19 +61,21 @@ async function geocodeNominatim(q: string): Promise<[number, number] | null> {
   return hit ? [parseFloat(hit.lat), parseFloat(hit.lon)] : null;
 }
 
-/** Geocodifica um endereço. Retorna null se não houver dados suficientes. */
+/** Geocodifica um endereço. Tenta do mais específico ao mais amplo. */
 export async function geocode(input: GeoInput): Promise<GeoResult | null> {
-  const built = buildQuery(input);
-  if (!built) return null;
+  const queries = buildQueries(input);
+  if (!queries.length) return null;
 
   const key = process.env.GOOGLE_MAPS_API_KEY;
-  try {
-    const coords = key
-      ? await geocodeGoogle(built.q, key)
-      : await geocodeNominatim(built.q);
-    if (!coords) return null;
-    return { lat: coords[0], lng: coords[1], method: built.method };
-  } catch {
-    return null;
+  for (const { q, method } of queries) {
+    try {
+      const coords = key
+        ? await geocodeGoogle(q, key)
+        : await geocodeNominatim(q);
+      if (coords) return { lat: coords[0], lng: coords[1], method };
+    } catch {
+      // tenta o próximo candidato
+    }
   }
+  return null;
 }
