@@ -42,10 +42,10 @@ export default function MapClient({ listings }: { listings: MapListing[] }) {
         [-26.11, -48.61],
         12,
       );
-      L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        { attribution: "&copy; OSM &copy; CARTO", maxZoom: 19 },
-      ).addTo(map);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(map);
 
       const pts: [number, number][] = [];
       listings.forEach((d) => {

@@ -86,10 +86,10 @@ export default function GeoEditor() {
       if (!el || (el as HTMLElement).dataset.init) return;
       (el as HTMLElement).dataset.init = "1";
       const map = L.map(el, { zoomControl: true }).setView([-26.11, -48.61], 12);
-      L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        { attribution: "&copy; OSM &copy; CARTO", maxZoom: 19 },
-      ).addTo(map);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 19,
+      }).addTo(map);
       map.on("click", (e: import("leaflet").LeafletMouseEvent) => {
         const id = selectedRef.current;
         if (!id) {
