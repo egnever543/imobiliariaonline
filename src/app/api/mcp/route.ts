@@ -10,7 +10,7 @@ import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase/server";
 import { findAgencies } from "@/lib/ingest/places";
 import { fingerprint } from "@/lib/ingest/fingerprint";
-import { discoverLinks, ingestOne } from "@/lib/ingest/pipeline";
+import { discoverLinks, ingestOne, enumerateAgency } from "@/lib/ingest/pipeline";
 import { estimateCostUSD } from "@/lib/ingest/cost";
 import { normalizeWebsite } from "@/lib/ingest/url";
 
@@ -179,6 +179,70 @@ const handler = createMcpHandler((server) => {
         });
       }
       return text({ found: agencies.length, saved, byPlatform, report });
+    },
+  );
+
+  // ── coletar um lote da cidade (todas as imobiliárias) ──
+  server.registerTool(
+    "coletar_lote",
+    {
+      description:
+        "Coleta um lote de anúncios NOVOS da cidade (varre as imobiliárias via sitemap, pula os já salvos). Chame várias vezes para avançar. Use limite pequeno.",
+      inputSchema: z.object({
+        slug: z.string(),
+        limite: z.number().max(15).optional(),
+      }),
+    },
+    async ({ slug, limite }) => {
+      const db = getServiceClient();
+      const { data: city } = await db
+        .from("cities")
+        .select("id,name,state")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (!city) return text({ error: "cidade não encontrada" });
+      const { data: ags } = await db
+        .from("agencies")
+        .select("id,name,website,listing_url")
+        .eq("city_id", city.id)
+        .eq("active", true);
+
+      const cap = Math.min(limite ?? 8, 15);
+      let processed = 0, saved = 0, skipped = 0, inTok = 0, outTok = 0, model = "";
+      let jsonld = 0, ai = 0;
+      const erros: string[] = [];
+      for (const a of ags ?? []) {
+        if (processed >= cap) break;
+        const urls = await enumerateAgency({
+          website: a.website,
+          listingUrl: a.listing_url,
+        });
+        for (const url of urls) {
+          if (processed >= cap) break;
+          const r = await ingestOne(
+            {
+              cityId: city.id, agencyId: a.id, listingUrl: a.listing_url ?? "",
+              keywords: [], cityName: city.name, state: city.state,
+            },
+            url,
+            { skipExisting: true },
+          );
+          if (r.via === "skip") { skipped++; continue; }
+          processed++;
+          if (r.via === "jsonld") jsonld++; else if (r.via === "ai") ai++;
+          inTok += r.inputTokens; outTok += r.outputTokens; model = r.model || model;
+          if (r.saved) saved++;
+          else if (r.error) erros.push(`${url}: ${r.error}`);
+        }
+      }
+      return text({
+        processadosNovos: processed,
+        salvos: saved,
+        jaExistiam: skipped,
+        via: { jsonld, ia: ai },
+        custoUSD: Number(estimateCostUSD(model, inTok, outTok).toFixed(4)),
+        erros,
+      });
     },
   );
 

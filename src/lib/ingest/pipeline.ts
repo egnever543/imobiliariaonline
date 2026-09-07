@@ -13,6 +13,8 @@ import { normalizeListing } from "./normalize";
 import { geocode } from "./geocode";
 import { fetchJsonLd } from "./jsonld";
 import { estimateCostUSD } from "./cost";
+import { enumerateFromSitemap } from "./sitemap";
+import { normalizeWebsite } from "./url";
 import { getServiceClient } from "../supabase/server";
 import type { AgencySource, CanonicalListing } from "./types";
 
@@ -76,11 +78,70 @@ export interface OneResult {
   estimatedCostUSD: number;
 }
 
+// ── Enumeração de todos os anúncios de uma imobiliária ─────────────────
+// Sitemap primeiro (completo); se vier pouco, cai na página de listagem.
+export async function enumerateAgency(a: {
+  website?: string | null;
+  listingUrl?: string | null;
+  keywords?: string[];
+}): Promise<string[]> {
+  let origin: string | null = null;
+  if (a.website) origin = normalizeWebsite(a.website);
+  else if (a.listingUrl) {
+    try {
+      origin = new URL(a.listingUrl).origin;
+    } catch {
+      origin = null;
+    }
+  }
+
+  const urls = new Set<string>();
+  if (origin) {
+    for (const u of await enumerateFromSitemap(origin)) urls.add(u);
+  }
+  // fallback: página de listagem (primeira página) se o sitemap rendeu pouco
+  if (urls.size < 3 && a.listingUrl) {
+    try {
+      const md = await fetchReadable(a.listingUrl);
+      for (const u of extractListingLinks(md, {
+        keywords: a.keywords,
+        sameHostAs: a.listingUrl,
+      }))
+        urls.add(u);
+    } catch {
+      /* ignora */
+    }
+  }
+  return [...urls];
+}
+
 export async function ingestOne(
   source: AgencySource,
   url: string,
+  opts: { skipExisting?: boolean } = {},
 ): Promise<OneResult> {
   try {
+    // pula anúncios já coletados (barato, para rodadas incrementais)
+    if (opts.skipExisting) {
+      const db = getServiceClient();
+      const { data } = await db
+        .from("listings")
+        .select("id")
+        .eq("source_url", url)
+        .maybeSingle();
+      if (data) {
+        return {
+          url,
+          saved: false,
+          via: "skip",
+          model: "",
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUSD: 0,
+        };
+      }
+    }
+
     // 1. Tenta JSON-LD (schema.org) direto do HTML — grátis e determinístico.
     let via = "jsonld";
     let listing = await fetchJsonLd(url);

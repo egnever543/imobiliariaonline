@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       state: body.uf ?? null,
     },
     body.url,
+    { skipExisting: body.skipExisting === true },
   );
 
   return Response.json(result);
