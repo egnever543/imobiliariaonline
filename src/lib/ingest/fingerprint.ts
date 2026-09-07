@@ -88,6 +88,7 @@ export async function fingerprint(rawUrl: string): Promise<Fingerprint> {
       if (href.startsWith("/")) href = `https://${host}${href}`;
       if (!href.startsWith("http")) continue;
       if (!LISTING_HINT.test(href)) continue;
+      if (/(manifest\.json|\/api\/|\/amp\/|wa\.me|whatsapp|[?&]phone=|tel:|mailto:|\.(png|jpg|css|js)(\?|$))/i.test(href)) continue;
       try {
         if (new URL(href).host !== host) continue;
       } catch {

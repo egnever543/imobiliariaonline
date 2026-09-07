@@ -5,6 +5,9 @@
 
 const IMAGE_EXT = /\.(jpg|jpeg|png|webp|gif|svg|ico)(\?|$)/i;
 const ROOT_ONLY = /^https?:\/\/[^/]+\/?$/i; // só o domínio, sem caminho
+// URLs que parecem anúncio mas não são (compartilhar, contato, assets, etc.)
+const JUNK =
+  /(wa\.me|whatsapp|[?&]phone=|\/contato|tel:|mailto:|facebook\.com|instagram\.com|wa-|\/api\/|manifest\.json|\/amp\/|\/compartilhar|[?&]share|\/politica|\/sobre)/i;
 
 export interface ExtractLinksOptions {
   /**
@@ -48,6 +51,7 @@ export function extractListingLinks(
     if (seen.has(url)) continue;
     if (IMAGE_EXT.test(url)) continue;
     if (ROOT_ONLY.test(url)) continue;
+    if (JUNK.test(url)) continue;
 
     if (host) {
       try {
