@@ -118,14 +118,24 @@ export async function enumerateAgency(a: {
   }
 
   let list = [...urls];
-  // Filtro de cidade: se algum link cita a cidade, mantém só esses (derruba
-  // anúncios de outras cidades em franquias/portais). Se nenhum cita (site
-  // local sem cidade na URL), mantém tudo.
+
+  // Filtro de cidade: a cidade costuma aparecer como SEGMENTO do caminho
+  // (ex.: /venda/itapoa/... ou ...-itapoa-centro-123). Mantém só esses.
   const token = a.cityName ? deaccent(a.cityName).split(/\s+/)[0] : "";
   if (token && token.length >= 3) {
-    const matches = list.filter((u) => deaccent(u).includes(token));
-    if (matches.length) list = matches;
+    const re = new RegExp(`(^|[^a-z0-9])${token}([^a-z0-9]|$)`);
+    const matches = list.filter((u) => re.test(deaccent(u)));
+    if (matches.length) {
+      list = matches; // derruba anúncios de outras cidades
+    } else if (list.length > 300) {
+      list = []; // site nacional sem a cidade na URL: não dá pra localizar -> pula
+    }
+    // (poucos e sem a cidade na URL = site local sem cidade no link -> mantém)
   }
+
+  // Trava dura: nenhuma imobiliária local de cidade pequena tem tantos anúncios.
+  const CAP = 800;
+  if (list.length > CAP) list = list.slice(0, CAP);
   return list;
 }
 
