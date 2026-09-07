@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       website: b.website ?? null,
       listingUrl: b.listingUrl ?? null,
       keywords: b.keywords ?? ["terreno", "imovel", "casa", "apartamento"],
+      cityName: b.cityName ?? null,
     });
     return Response.json({ count: urls.length, urls });
   } catch (e) {

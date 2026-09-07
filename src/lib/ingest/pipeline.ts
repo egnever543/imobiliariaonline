@@ -80,10 +80,14 @@ export interface OneResult {
 
 // ── Enumeração de todos os anúncios de uma imobiliária ─────────────────
 // Sitemap primeiro (completo); se vier pouco, cai na página de listagem.
+const deaccent = (s: string) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
 export async function enumerateAgency(a: {
   website?: string | null;
   listingUrl?: string | null;
   keywords?: string[];
+  cityName?: string | null; // filtra URLs de outras cidades (franquias/portais)
 }): Promise<string[]> {
   let origin: string | null = null;
   if (a.website) origin = normalizeWebsite(a.website);
@@ -112,7 +116,17 @@ export async function enumerateAgency(a: {
       /* ignora */
     }
   }
-  return [...urls];
+
+  let list = [...urls];
+  // Filtro de cidade: se algum link cita a cidade, mantém só esses (derruba
+  // anúncios de outras cidades em franquias/portais). Se nenhum cita (site
+  // local sem cidade na URL), mantém tudo.
+  const token = a.cityName ? deaccent(a.cityName).split(/\s+/)[0] : "";
+  if (token && token.length >= 3) {
+    const matches = list.filter((u) => deaccent(u).includes(token));
+    if (matches.length) list = matches;
+  }
+  return list;
 }
 
 export async function ingestOne(

@@ -220,6 +220,7 @@ const handler = createMcpHandler((server) => {
         const urls = await enumerateAgency({
           website: a.website,
           listingUrl: a.listing_url,
+          cityName: city.name,
         });
         for (const url of urls) {
           if (processed >= cap) break;

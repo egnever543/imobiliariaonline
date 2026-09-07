@@ -67,7 +67,7 @@ export default function ColetarCidade() {
         try {
           const r = await fetch("/api/enumerate", {
             method: "POST", headers: headers(),
-            body: JSON.stringify({ website: a.website, listingUrl: a.listing_url }),
+            body: JSON.stringify({ website: a.website, listingUrl: a.listing_url, cityName: data.cityName }),
           });
           const d = await r.json();
           const urls: string[] = d.urls ?? [];
