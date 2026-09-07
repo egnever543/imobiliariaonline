@@ -11,6 +11,7 @@ import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
 import { geocode } from "./geocode";
+import { fetchJsonLd } from "./jsonld";
 import { estimateCostUSD } from "./cost";
 import { getServiceClient } from "../supabase/server";
 import type { AgencySource, CanonicalListing } from "./types";
@@ -67,6 +68,8 @@ export interface OneResult {
   url: string;
   saved: boolean;
   error?: string;
+  /** Método usado: "jsonld" (grátis) ou "ai" (Jina + Claude). */
+  via: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -78,16 +81,32 @@ export async function ingestOne(
   url: string,
 ): Promise<OneResult> {
   try {
-    const adMd = await fetchReadable(url);
-    const { listing, inputTokens, outputTokens, model } =
-      await extractListing(adMd);
+    // 1. Tenta JSON-LD (schema.org) direto do HTML — grátis e determinístico.
+    let via = "jsonld";
+    let listing = await fetchJsonLd(url);
+    let model = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    // 2. Fallback: IA (Jina Reader + Claude).
+    if (!listing) {
+      via = "ai";
+      const adMd = await fetchReadable(url);
+      const r = await extractListing(adMd);
+      listing = r.listing;
+      model = r.model;
+      inputTokens = r.inputTokens;
+      outputTokens = r.outputTokens;
+    }
+
     const estimatedCostUSD = estimateCostUSD(model, inputTokens, outputTokens);
 
     if (!listing) {
       return {
         url,
         saved: false,
-        error: "IA não devolveu JSON",
+        error: "não foi possível extrair (sem JSON-LD e IA sem retorno)",
+        via,
         model,
         inputTokens,
         outputTokens,
@@ -96,6 +115,7 @@ export async function ingestOne(
     }
 
     const canonical = normalizeListing(listing, source, url);
+    canonical.raw = { via, ...canonical.raw };
 
     // geocodifica o endereço (não falha a coleta se não achar coordenadas)
     const geo = await geocode({
@@ -112,12 +132,13 @@ export async function ingestOne(
     }
 
     await saveListing(canonical);
-    return { url, saved: true, model, inputTokens, outputTokens, estimatedCostUSD };
+    return { url, saved: true, via, model, inputTokens, outputTokens, estimatedCostUSD };
   } catch (err) {
     return {
       url,
       saved: false,
       error: (err as Error).message,
+      via: "erro",
       model: "",
       inputTokens: 0,
       outputTokens: 0,

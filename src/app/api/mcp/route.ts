@@ -220,11 +220,13 @@ const handler = createMcpHandler((server) => {
       };
       const cap = Math.min(limite ?? 3, 10);
       const { total, links } = await discoverLinks(source, cap);
-      let saved = 0, inTok = 0, outTok = 0, model = "";
+      let saved = 0, inTok = 0, outTok = 0, model = "", viaJsonLd = 0, viaAi = 0;
       const erros: string[] = [];
       for (const url of links) {
         const r = await ingestOne(source, url);
         inTok += r.inputTokens; outTok += r.outputTokens; model = r.model || model;
+        if (r.via === "jsonld") viaJsonLd++;
+        else if (r.via === "ai") viaAi++;
         if (r.saved) saved++;
         else if (r.error) erros.push(`${url}: ${r.error}`);
       }
@@ -232,6 +234,7 @@ const handler = createMcpHandler((server) => {
         linksEncontrados: total,
         processados: links.length,
         salvos: saved,
+        via: { jsonld: viaJsonLd, ia: viaAi },
         custoUSD: Number(estimateCostUSD(model, inTok, outTok).toFixed(4)),
         erros,
       });
