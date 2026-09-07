@@ -166,7 +166,9 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
       (el as HTMLElement).dataset.init = "1";
       const map = L.map(el, { zoomControl: true }).setView([-26.11, -48.61], 12);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap", maxZoom: 19,
+        attribution: "&copy; OpenStreetMap",
+        maxZoom: 19,
+        className: "map-dark",
       }).addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;

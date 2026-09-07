@@ -89,6 +89,7 @@ export default function GeoEditor() {
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap",
         maxZoom: 19,
+        className: "map-dark",
       }).addTo(map);
       map.on("click", (e: import("leaflet").LeafletMouseEvent) => {
         const id = selectedRef.current;

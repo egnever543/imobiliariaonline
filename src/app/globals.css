@@ -43,3 +43,12 @@ body {
 a {
   color: var(--accent);
 }
+
+/* ── Mapa tema escuro (sem chave): inverte os tiles claros do OSM ── */
+.leaflet-container {
+  background: #0e1310;
+}
+.leaflet-tile.map-dark {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)
+    saturate(0.8);
+}
