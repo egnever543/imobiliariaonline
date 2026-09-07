@@ -109,7 +109,9 @@ export async function extractListing(adText: string): Promise<ExtractResult> {
     model,
     max_tokens: 1024,
     system: SYSTEM,
-    messages: [{ role: "user", content: adText.slice(0, 50_000) }],
+    // Só o começo da página basta (preço/área/quartos ficam no topo do
+    // conteúdo); corta menu/rodapé/relacionados e reduz o custo da IA.
+    messages: [{ role: "user", content: adText.slice(0, 16_000) }],
   });
 
   const text = msg.content
