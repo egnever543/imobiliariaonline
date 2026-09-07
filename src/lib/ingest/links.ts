@@ -5,6 +5,9 @@
 
 const IMAGE_EXT = /\.(jpg|jpeg|png|webp|gif|svg|ico)(\?|$)/i;
 const ROOT_ONLY = /^https?:\/\/[^/]+\/?$/i; // só o domínio, sem caminho
+// Parece anúncio individual (tem código/id/número), não página de categoria.
+const DETAIL =
+  /-codigo-|\/codigo\/|[?&](codigo|id|ref|cod|imovel)=|\/imovel\/|-id-|\/\d{3,}(\/|$|\?)|-\d{3,}(-|\/|$|\?)/i;
 // URLs que parecem anúncio mas não são (compartilhar, contato, assets, etc.)
 const JUNK =
   /(wa\.me|whatsapp|[?&]phone=|\/contato|tel:|mailto:|facebook\.com|instagram\.com|wa-|\/api\/|manifest\.json|\/amp\/|\/compartilhar|[?&]share|\/politica|\/sobre|temporada|aluguel|alugar)/i;
@@ -65,6 +68,8 @@ export function extractListingLinks(
       const u = url.toLowerCase();
       if (!lowered.some((k) => u.includes(k))) continue;
     }
+    // precisa parecer um anúncio individual (evita páginas de categoria/menu)
+    if (!DETAIL.test(url)) continue;
 
     seen.add(url);
     out.push(url);
