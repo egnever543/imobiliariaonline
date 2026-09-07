@@ -175,6 +175,23 @@ export async function ingestOne(
 
     const estimatedCostUSD = estimateCostUSD(model, inputTokens, outputTokens);
 
+    // registra o evento de uso (histórico de gastos) — não falha a coleta
+    if (via === "ai" || via === "jsonld") {
+      getServiceClient()
+        .from("usage_events")
+        .insert({
+          via,
+          model,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cost_usd: estimatedCostUSD,
+        })
+        .then(
+          () => {},
+          () => {},
+        );
+    }
+
     if (!listing) {
       return {
         url,
