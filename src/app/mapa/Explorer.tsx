@@ -165,11 +165,19 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
       if (!el || (el as HTMLElement).dataset.init) return;
       (el as HTMLElement).dataset.init = "1";
       const map = L.map(el, { zoomControl: true }).setView([-26.11, -48.61], 12);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap",
-        maxZoom: 19,
-        className: "map-dark",
-      }).addTo(map);
+      const carto = process.env.NEXT_PUBLIC_CARTO_KEY;
+      if (carto) {
+        L.tileLayer(
+          `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${carto}`,
+          { subdomains: "abcd", attribution: "&copy; OSM &copy; CARTO", maxZoom: 20 },
+        ).addTo(map);
+      } else {
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "&copy; OpenStreetMap",
+          maxZoom: 19,
+          className: "map-dark",
+        }).addTo(map);
+      }
       layerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
       setMapReady(true);
