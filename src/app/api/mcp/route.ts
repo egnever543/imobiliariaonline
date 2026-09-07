@@ -37,21 +37,23 @@ const handler = createMcpHandler((server) => {
     "consultar_imoveis",
     {
       description:
-        "Consulta os imóveis já coletados, com filtros opcionais de bairro, tipo e faixa de preço.",
+        "Consulta os imóveis já coletados, com filtros opcionais de bairro, tipo, faixa de preço, nº mínimo de quartos e de vagas.",
       inputSchema: z.object({
         bairro: z.string().optional(),
         tipo: z.string().optional(),
         preco_min: z.number().optional(),
         preco_max: z.number().optional(),
+        quartos_min: z.number().optional(),
+        vagas_min: z.number().optional(),
         limite: z.number().max(200).optional(),
       }),
     },
-    async ({ bairro, tipo, preco_min, preco_max, limite }) => {
+    async ({ bairro, tipo, preco_min, preco_max, quartos_min, vagas_min, limite }) => {
       const db = getServiceClient();
       let q = db
         .from("listings")
         .select(
-          "id,title,type,price,area_total_m2,neighborhood,lat,lng,source_url,agencies(name)",
+          "id,title,type,price,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,condo_fee,is_launch,neighborhood,lat,lng,source_url,agencies(name)",
         )
         .order("first_seen_at", { ascending: false })
         .limit(limite ?? 50);
@@ -59,6 +61,8 @@ const handler = createMcpHandler((server) => {
       if (tipo) q = q.eq("type", tipo);
       if (preco_min != null) q = q.gte("price", preco_min);
       if (preco_max != null) q = q.lte("price", preco_max);
+      if (quartos_min != null) q = q.gte("bedrooms", quartos_min);
+      if (vagas_min != null) q = q.gte("parking", vagas_min);
       const { data, error } = await q;
       return error ? text({ error: error.message }) : text(data);
     },

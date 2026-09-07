@@ -23,6 +23,10 @@ Regras:
 - Se um campo não existir no anúncio, use null. Nunca invente dados.
 - "type": normalize para Terreno, Casa, Apartamento, Comercial, Sítio, etc.
 - "accepts_permuta": true se o anúncio menciona aceitar permuta/troca, senão false.
+- "bedrooms"/"bathrooms"/"suites"/"parking": número de quartos, banheiros, suítes e vagas de garagem (número puro). Sem info -> null.
+- "built_area_m2": área CONSTRUÍDA em m² (diferente da área do terreno). Sem info -> null.
+- "condo_fee": valor do condomínio mensal em número puro. Sem info -> null.
+- "is_launch": true se for lançamento / imóvel na planta / em construção, senão false.
 
 Formato exato do JSON:
 {
@@ -39,7 +43,14 @@ Formato exato do JSON:
   "cep": string|null,
   "accepts_permuta": boolean|null,
   "description": string|null,
-  "external_code": string|null
+  "external_code": string|null,
+  "bedrooms": number|null,
+  "bathrooms": number|null,
+  "suites": number|null,
+  "parking": number|null,
+  "built_area_m2": number|null,
+  "condo_fee": number|null,
+  "is_launch": boolean|null
 }`;
 
 let client: Anthropic | null = null;
@@ -72,6 +83,13 @@ const EMPTY: ExtractedListing = {
   accepts_permuta: null,
   description: null,
   external_code: null,
+  bedrooms: null,
+  bathrooms: null,
+  suites: null,
+  parking: null,
+  built_area_m2: null,
+  condo_fee: null,
+  is_launch: null,
 };
 
 export interface ExtractResult {

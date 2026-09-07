@@ -91,6 +91,8 @@ export function extractJsonLd(html: string): ExtractedListing | null {
   let street: string | null = null;
   let cep: string | null = null;
   let neighborhood: string | null = null;
+  let bedrooms: number | null = null;
+  let bathrooms: number | null = null;
   let atType = "";
 
   for (const n of cand) {
@@ -107,6 +109,9 @@ export function extractJsonLd(html: string): ExtractedListing | null {
       const fs = n.floorSize as Node | number | undefined;
       area = toNum(typeof fs === "object" ? fs?.value : fs);
     }
+    if (bedrooms == null) bedrooms = toNum(n.numberOfBedrooms ?? n.numberOfRooms);
+    if (bathrooms == null)
+      bathrooms = toNum(n.numberOfBathroomsTotal ?? n.numberOfBathrooms);
     const addr = n.address as Node | undefined;
     if (addr && typeof addr === "object") {
       if (street == null && typeof addr.streetAddress === "string")
@@ -135,6 +140,13 @@ export function extractJsonLd(html: string): ExtractedListing | null {
     accepts_permuta: null,
     description,
     external_code: null,
+    bedrooms,
+    bathrooms,
+    suites: null,
+    parking: null,
+    built_area_m2: null,
+    condo_fee: null,
+    is_launch: null,
   };
 }
 

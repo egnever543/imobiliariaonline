@@ -16,6 +16,14 @@ export interface ExtractedListing {
   accepts_permuta: boolean | null;
   description: string | null;
   external_code: string | null;
+  // atributos por tipo
+  bedrooms: number | null; // quartos
+  bathrooms: number | null; // banheiros
+  suites: number | null; // suítes
+  parking: number | null; // vagas
+  built_area_m2: number | null; // área construída
+  condo_fee: number | null; // condomínio mensal
+  is_launch: boolean | null; // lançamento / na planta
 }
 
 /** Registro canônico, pronto para gravar na tabela `listings`. */
