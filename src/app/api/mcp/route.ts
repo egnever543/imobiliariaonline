@@ -41,11 +41,11 @@ const handler = createMcpHandler((server) => {
       inputSchema: z.object({
         bairro: z.string().optional(),
         tipo: z.string().optional(),
-        preco_min: z.number().optional(),
-        preco_max: z.number().optional(),
-        quartos_min: z.number().optional(),
-        vagas_min: z.number().optional(),
-        limite: z.number().max(200).optional(),
+        preco_min: z.coerce.number().optional(),
+        preco_max: z.coerce.number().optional(),
+        quartos_min: z.coerce.number().optional(),
+        vagas_min: z.coerce.number().optional(),
+        limite: z.coerce.number().max(200).optional(),
       }),
     },
     async ({ bairro, tipo, preco_min, preco_max, quartos_min, vagas_min, limite }) => {
@@ -194,7 +194,7 @@ const handler = createMcpHandler((server) => {
         "Coleta um lote de anúncios NOVOS da cidade (varre as imobiliárias via sitemap, pula os já salvos). Chame várias vezes para avançar. Use limite pequeno.",
       inputSchema: z.object({
         slug: z.string(),
-        limite: z.number().max(15).optional(),
+        limite: z.coerce.number().max(15).optional(),
       }),
     },
     async ({ slug, limite }) => {
@@ -263,7 +263,7 @@ const handler = createMcpHandler((server) => {
         uf: z.string(),
         agencia: z.string().optional(),
         keywords: z.array(z.string()).optional(),
-        limite: z.number().max(10).optional(),
+        limite: z.coerce.number().max(10).optional(),
       }),
     },
     async ({ listingUrl, slug, cidade, uf, agencia, keywords, limite }) => {

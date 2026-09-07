@@ -6,7 +6,7 @@
 const AD_HINT =
   /(imovel|imoveis|terreno|casa|apartamento|sobrado|kitnet|cobertura|comercial|sala|galpao|chacara|sitio|lote|duplex)/i;
 const JUNK =
-  /(wa\.me|whatsapp|[?&]phone=|\/contato|tel:|mailto:|facebook\.com|instagram\.com|\/api\/|manifest\.json|\/amp\/|\/politica|\/sobre|\/blog|\.(png|jpg|jpeg|webp|gif|css|js)(\?|$))/i;
+  /(wa\.me|whatsapp|[?&]phone=|\/contato|tel:|mailto:|facebook\.com|instagram\.com|\/api\/|manifest\.json|\/amp\/|\/politica|\/sobre|\/blog|temporada|aluguel|alugar|\.(png|jpg|jpeg|webp|gif|css|js)(\?|$))/i;
 
 /** Parece uma página de anúncio individual (tem código/id ou slug com número). */
 function looksLikeDetail(u: string): boolean {
