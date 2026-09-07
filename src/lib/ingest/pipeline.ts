@@ -11,12 +11,34 @@ import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
 import { geocode } from "./geocode";
-import { fetchJsonLd } from "./jsonld";
+import { fetchStructured, mergeFill, EMPTY } from "./structured";
 import { estimateCostUSD } from "./cost";
 import { enumerateFromSitemap } from "./sitemap";
 import { normalizeWebsite } from "./url";
 import { getServiceClient } from "../supabase/server";
-import type { AgencySource, CanonicalListing } from "./types";
+import type { AgencySource, CanonicalListing, ExtractedListing } from "./types";
+
+// Campos suficientes para NÃO precisar da IA (preço + área + tipo + quartos
+// quando for residencial). Ajustável.
+function hasEnough(m: ExtractedListing): boolean {
+  const hasArea = m.area_total_m2 != null || m.built_area_m2 != null;
+  const residential = !!m.type && !/terreno|comercial|s[ií]tio/i.test(m.type);
+  return (
+    m.price != null &&
+    hasArea &&
+    m.type != null &&
+    (!residential || m.bedrooms != null)
+  );
+}
+// Sem nada de útil -> não salva.
+function isEmpty(m: ExtractedListing): boolean {
+  return (
+    m.price == null &&
+    m.area_total_m2 == null &&
+    m.built_area_m2 == null &&
+    !m.title
+  );
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -166,32 +188,21 @@ export async function ingestOne(
       }
     }
 
-    // 1. Tenta JSON-LD (schema.org) direto do HTML — grátis e determinístico.
+    // 1. Estruturado (grátis): JSON-LD + OpenGraph + microdados + pistas da URL.
     let via = "jsonld";
-    let listing = await fetchJsonLd(url);
+    const structured = await fetchStructured(url);
+    let listing: ExtractedListing = structured ?? { ...EMPTY };
     let model = "";
     let inputTokens = 0;
     let outputTokens = 0;
 
-    // Filtro de qualidade: só confia no JSON-LD se veio preço, área e um bairro
-    // de verdade (diferente da própria cidade). Senão, usa a IA.
-    if (listing) {
-      const cityName = (source.cityName ?? "").trim().toLowerCase();
-      const bairro = (listing.neighborhood ?? "").trim().toLowerCase();
-      const bomJsonLd =
-        listing.price != null &&
-        listing.area_total_m2 != null &&
-        bairro.length > 0 &&
-        bairro !== cityName;
-      if (!bomJsonLd) listing = null;
-    }
-
-    // 2. Fallback: IA (Jina Reader + Claude).
-    if (!listing) {
-      via = "ai";
+    // 2. IA barata só COMPLETA o que faltou (se faltar campo essencial).
+    if (!structured || !hasEnough(structured)) {
+      via = "ia";
       const adMd = await fetchReadable(url);
       const r = await extractListing(adMd);
-      listing = r.listing;
+      // mantém o que o estruturado trouxe; a IA preenche apenas os buracos
+      listing = mergeFill(listing, r.listing);
       model = r.model;
       inputTokens = r.inputTokens;
       outputTokens = r.outputTokens;
@@ -216,11 +227,11 @@ export async function ingestOne(
         );
     }
 
-    if (!listing) {
+    if (isEmpty(listing)) {
       return {
         url,
         saved: false,
-        error: "não foi possível extrair (sem JSON-LD e IA sem retorno)",
+        error: "sem dados (nem estruturado nem IA retornaram)",
         via,
         model,
         inputTokens,

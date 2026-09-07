@@ -122,9 +122,6 @@ export function extractJsonLd(html: string): ExtractedListing | null {
     }
   }
 
-  // só vale a pena se tiver ao menos preço ou área
-  if (price == null && area == null) return null;
-
   return {
     title,
     type: inferType(title, atType),
