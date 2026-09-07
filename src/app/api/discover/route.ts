@@ -4,6 +4,7 @@
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
 import { discoverLinks } from "@/lib/ingest/pipeline";
+import { normalizeWebsite } from "@/lib/ingest/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,12 +42,7 @@ export async function POST(req: Request) {
   // garante a imobiliária (opcional)
   let agencyId: string | null = null;
   if (body.agencyName) {
-    let website = body.listingUrl;
-    try {
-      website = new URL(body.listingUrl).origin;
-    } catch {
-      /* mantém como veio */
-    }
+    const website = normalizeWebsite(body.listingUrl);
     const { data: agency, error: agErr } = await db
       .from("agencies")
       .upsert(

@@ -9,6 +9,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { ingestAgency } from "../src/lib/ingest/pipeline";
 import { getServiceClient } from "../src/lib/supabase/server";
+import { normalizeWebsite } from "../src/lib/ingest/url";
 
 // ── carrega .env.local (loader mínimo, sem dependências) ──────────────
 function loadEnv(path = ".env.local") {
@@ -69,7 +70,7 @@ async function main() {
   let agencyId: string | null = null;
   const agencyName = arg("agency");
   if (agencyName) {
-    const website = new URL(url).origin;
+    const website = normalizeWebsite(url);
     const { data: agency, error: agErr } = await db
       .from("agencies")
       .upsert(

@@ -6,6 +6,7 @@ import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
 import { findAgencies } from "@/lib/ingest/places";
 import { fingerprint, type Fingerprint } from "@/lib/ingest/fingerprint";
+import { normalizeWebsite } from "@/lib/ingest/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
       {
         city_id: city.id,
         name: a.name,
-        website: new URL(a.website!).origin,
+        website: normalizeWebsite(a.website!),
         platform: fp.platform,
         listing_url: fp.candidateListingUrls[0] ?? null,
         google_place_id: a.place_id,

@@ -12,6 +12,7 @@ import { findAgencies } from "@/lib/ingest/places";
 import { fingerprint } from "@/lib/ingest/fingerprint";
 import { discoverLinks, ingestOne } from "@/lib/ingest/pipeline";
 import { estimateCostUSD } from "@/lib/ingest/cost";
+import { normalizeWebsite } from "@/lib/ingest/url";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -159,7 +160,7 @@ const handler = createMcpHandler((server) => {
           {
             city_id: cityId,
             name: a.name,
-            website: new URL(a.website!).origin,
+            website: normalizeWebsite(a.website!),
             platform: fp.platform,
             listing_url: fp.candidateListingUrls[0] ?? null,
             google_place_id: a.place_id,
@@ -206,7 +207,7 @@ const handler = createMcpHandler((server) => {
         const { data } = await db
           .from("agencies")
           .upsert(
-            { city_id: cityId, name: agencia, website: new URL(listingUrl).origin, listing_url: listingUrl },
+            { city_id: cityId, name: agencia, website: normalizeWebsite(listingUrl), listing_url: listingUrl },
             { onConflict: "city_id,website" },
           )
           .select("id")
