@@ -11,12 +11,21 @@ const REALESTATE_TYPE =
 function toNum(v: unknown): number | null {
   if (v == null) return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (typeof v === "string") {
-    const c = v.replace(/[^0-9.,-]/g, "").replace(/\./g, "").replace(",", ".");
-    const n = Number(c);
-    return Number.isFinite(n) ? n : null;
+  if (typeof v !== "string") return null;
+  let s = v.replace(/[^0-9.,-]/g, "");
+  if (!s) return null;
+  const hasComma = s.includes(",");
+  const dots = (s.match(/\./g) || []).length;
+  if (hasComma) {
+    // formato BR: "2.480.000,00" -> tira pontos, vírgula vira ponto
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (dots > 1) {
+    // vários pontos = separador de milhar: "2.480.000"
+    s = s.replace(/\./g, "");
   }
-  return null;
+  // um ponto só = decimal (padrão JSON-LD, ex "2480000.00") -> mantém
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 type Node = Record<string, unknown>;

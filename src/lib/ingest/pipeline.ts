@@ -88,6 +88,19 @@ export async function ingestOne(
     let inputTokens = 0;
     let outputTokens = 0;
 
+    // Filtro de qualidade: só confia no JSON-LD se veio preço, área e um bairro
+    // de verdade (diferente da própria cidade). Senão, usa a IA.
+    if (listing) {
+      const cityName = (source.cityName ?? "").trim().toLowerCase();
+      const bairro = (listing.neighborhood ?? "").trim().toLowerCase();
+      const bomJsonLd =
+        listing.price != null &&
+        listing.area_total_m2 != null &&
+        bairro.length > 0 &&
+        bairro !== cityName;
+      if (!bomJsonLd) listing = null;
+    }
+
     // 2. Fallback: IA (Jina Reader + Claude).
     if (!listing) {
       via = "ai";
