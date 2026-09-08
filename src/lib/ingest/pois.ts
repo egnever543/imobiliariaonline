@@ -50,12 +50,35 @@ export const CAT_WEIGHT: Record<string, number> = {
 };
 
 // ── OpenStreetMap / Overpass (grátis, cidade inteira em 1 consulta) ────
-// Vários espelhos: se um estiver lento/fora, tenta o próximo.
+// Vários espelhos: se um estiver lento/fora, tenta o próximo (kumi costuma
+// ser o mais rápido, então vem primeiro).
 const OVERPASS_MIRRORS = [
-  "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
+
+/**
+ * Caixa robusta: usa percentis (2%–98%) em vez de min/max, para ignorar
+ * imóveis com coordenada errada (outliers) que inflariam a bbox e fariam o
+ * Overpass varrer meio país. Cai no min/max se houver poucos pontos.
+ */
+export function boundsRobust(
+  points: { lat: number; lng: number }[],
+  marginDeg = 0.03,
+): { minLat: number; maxLat: number; minLng: number; maxLng: number } | null {
+  const lats = points.map((p) => p.lat).filter((v) => v != null).sort((a, b) => a - b);
+  const lngs = points.map((p) => p.lng).filter((v) => v != null).sort((a, b) => a - b);
+  if (!lats.length) return null;
+  const at = (arr: number[], p: number) =>
+    arr[Math.min(arr.length - 1, Math.max(0, Math.round((arr.length - 1) * p)))];
+  const lo = lats.length >= 20 ? 0.02 : 0;
+  const hi = lats.length >= 20 ? 0.98 : 1;
+  return {
+    minLat: at(lats, lo) - marginDeg, maxLat: at(lats, hi) + marginDeg,
+    minLng: at(lngs, lo) - marginDeg, maxLng: at(lngs, hi) + marginDeg,
+  };
+}
 
 // tag OSM (chave=valor) → categoria normalizada
 function osmCategory(tags: Record<string, string>): string | null {
@@ -77,12 +100,13 @@ export function overpassQuery(b: {
   minLat: number; minLng: number; maxLat: number; maxLng: number;
 }): string {
   const bbox = `${b.minLat},${b.minLng},${b.maxLat},${b.maxLng}`;
+  // node+way (sem relations — mais leve/rápido); relations quase não agregam POIs.
   const sel = [
-    `nwr["amenity"~"^(school|kindergarten|college|university|pharmacy|hospital|clinic|doctors|health_post|bank)$"](${bbox});`,
-    `nwr["shop"~"^(supermarket|grocery|bakery)$"](${bbox});`,
-    `nwr["leisure"~"^(park|garden|fitness_centre|sports_centre)$"](${bbox});`,
+    `nw["amenity"~"^(school|kindergarten|college|university|pharmacy|hospital|clinic|doctors|health_post|bank)$"](${bbox});`,
+    `nw["shop"~"^(supermarket|grocery|bakery)$"](${bbox});`,
+    `nw["leisure"~"^(park|garden|fitness_centre|sports_centre)$"](${bbox});`,
   ].join("\n  ");
-  return `[out:json][timeout:60];\n(\n  ${sel}\n);\nout center tags;`;
+  return `[out:json][timeout:25];\n(\n  ${sel}\n);\nout center tags;`;
 }
 
 interface OverpassEl {
@@ -93,7 +117,7 @@ interface OverpassEl {
   tags?: Record<string, string>;
 }
 
-async function overpassFetch(query: string, timeoutMs = 25_000): Promise<{ elements?: OverpassEl[] }> {
+async function overpassFetch(query: string, timeoutMs = 18_000): Promise<{ elements?: OverpassEl[] }> {
   let lastErr = "";
   for (const url of OVERPASS_MIRRORS) {
     try {

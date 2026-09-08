@@ -6,7 +6,7 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
-import { collectPois, collectPoisOsm, estimate, gridCells, boundsOf, bboxCells } from "@/lib/ingest/pois";
+import { collectPois, collectPoisOsm, estimate, gridCells, boundsOf, boundsRobust, bboxCells } from "@/lib/ingest/pois";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -67,7 +67,9 @@ async function handle(req: Request) {
   // ── OpenStreetMap: 1 chamada cobre a cidade toda, de graça ──
   if (provider === "osm") {
     const margin = typeof body.marginKm === "number" ? body.marginKm * 0.009 : 0.03;
-    const b = boundsOf(points, margin);
+    // bbox robusta: ignora imóveis com coordenada errada (senão a área explode
+    // e o Overpass estoura o tempo).
+    const b = boundsRobust(points, margin);
     if (!b) return Response.json({ error: "Sem bbox." }, { status: 400 });
     if (body.dryRun) {
       return Response.json({ dryRun: true, provider: "osm", imoveis: points.length, requests: 1, costUSD: 0, gratis: true });
