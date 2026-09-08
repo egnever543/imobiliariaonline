@@ -12,7 +12,7 @@ async function loadListings(): Promise<Listing[]> {
     const { data } = await db
       .from("listings")
       .select(
-        "id,title,type,price,price_original,area_total_m2,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,accepts_permuta,source_url,agencies(name)",
+        "id,title,type,price,price_original,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,accepts_permuta,is_launch,source_url,agencies(name)",
       )
       .order("first_seen_at", { ascending: false })
       .limit(3000);
