@@ -195,23 +195,31 @@ export async function ingestOne(
     let model = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    let aiError: string | null = null;
 
     // 2. IA barata só COMPLETA o que faltou (se faltar campo essencial).
+    //    Se a IA falhar (ex.: crédito Anthropic esgotado), NÃO perde o anúncio:
+    //    mantém o que o estruturado já trouxe e segue salvando (via "jsonld").
     if (!structured || !hasEnough(structured)) {
-      via = "ia";
-      const adMd = await fetchReadable(url);
-      const r = await extractListing(adMd);
-      // mantém o que o estruturado trouxe; a IA preenche apenas os buracos
-      listing = mergeFill(listing, r.listing);
-      model = r.model;
-      inputTokens = r.inputTokens;
-      outputTokens = r.outputTokens;
+      try {
+        const adMd = await fetchReadable(url);
+        const r = await extractListing(adMd);
+        // mantém o que o estruturado trouxe; a IA preenche apenas os buracos
+        listing = mergeFill(listing, r.listing);
+        model = r.model;
+        inputTokens = r.inputTokens;
+        outputTokens = r.outputTokens;
+        via = "ia";
+      } catch (aiErr) {
+        // IA indisponível: fica só com o estruturado (se houver algo).
+        aiError = (aiErr as Error).message;
+      }
     }
 
     const estimatedCostUSD = estimateCostUSD(model, inputTokens, outputTokens);
 
     // registra o evento de uso (histórico de gastos) — não falha a coleta
-    if (via === "ai" || via === "jsonld") {
+    if (via === "ia" || via === "jsonld") {
       getServiceClient()
         .from("usage_events")
         .insert({
@@ -231,7 +239,9 @@ export async function ingestOne(
       return {
         url,
         saved: false,
-        error: "sem dados (nem estruturado nem IA retornaram)",
+        error: aiError
+          ? `IA indisponível e sem dados estruturados (${aiError})`
+          : "sem dados (nem estruturado nem IA retornaram)",
         via,
         model,
         inputTokens,
