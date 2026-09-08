@@ -9,9 +9,18 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { collectPois, collectPoisOsm, estimate, gridCells, boundsOf, bboxCells } from "@/lib/ingest/pois";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // sempre devolve JSON (evita "Unexpected end of JSON input" no cliente)
+    return Response.json({ error: (e as Error).message || "Falha na coleta." }, { status: 500 });
+  }
+}
+
+async function handle(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
   const body = await req.json().catch(() => null);

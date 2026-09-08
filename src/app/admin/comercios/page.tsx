@@ -44,10 +44,19 @@ export default function Comercios() {
         method: "POST", headers: headers(),
         body: JSON.stringify({ citySlug, provider, mode, dryRun, maxCells: maxCells || undefined }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      if (dryRun) { setEst(data); setMsg(""); }
-      else { setDone(data); setEst(null); setMsg("✅ Comércios coletados. Ative o 🔥 no mapa."); }
+      const text = await res.text();
+      let data: Record<string, unknown> = {};
+      try { data = text ? JSON.parse(text) : {}; } catch { /* resposta vazia/timeout */ }
+      if (!res.ok) {
+        throw new Error(
+          (data.error as string) ??
+            (res.status === 504 || !text
+              ? "A coleta demorou demais (Overpass lento). Tente de novo em instantes."
+              : `HTTP ${res.status}`),
+        );
+      }
+      if (dryRun) { setEst(data as unknown as Est); setMsg(""); }
+      else { setDone(data as unknown as Done); setEst(null); setMsg("✅ Comércios coletados. Ative o 🔥 no mapa."); }
     } catch (e) {
       setMsg("Erro: " + (e as Error).message);
     } finally { setBusy(false); }

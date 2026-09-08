@@ -50,7 +50,12 @@ export const CAT_WEIGHT: Record<string, number> = {
 };
 
 // ── OpenStreetMap / Overpass (grátis, cidade inteira em 1 consulta) ────
-const OVERPASS = "https://overpass-api.de/api/interpreter";
+// Vários espelhos: se um estiver lento/fora, tenta o próximo.
+const OVERPASS_MIRRORS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
 
 // tag OSM (chave=valor) → categoria normalizada
 function osmCategory(tags: Record<string, string>): string | null {
@@ -88,18 +93,40 @@ interface OverpassEl {
   tags?: Record<string, string>;
 }
 
+async function overpassFetch(query: string, timeoutMs = 25_000): Promise<{ elements?: OverpassEl[] }> {
+  let lastErr = "";
+  for (const url of OVERPASS_MIRRORS) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), timeoutMs);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+        signal: c.signal,
+      });
+      clearTimeout(t);
+      const text = await res.text();
+      if (!res.ok) { lastErr = `HTTP ${res.status} em ${new URL(url).host}`; continue; }
+      try {
+        return JSON.parse(text) as { elements?: OverpassEl[] };
+      } catch {
+        lastErr = `resposta não-JSON de ${new URL(url).host}`;
+        continue;
+      }
+    } catch (e) {
+      lastErr = (e as Error).name === "AbortError" ? "tempo esgotado (Overpass lento)" : (e as Error).message;
+    }
+  }
+  throw new Error("Overpass indisponível: " + lastErr);
+}
+
 /** Uma única chamada ao Overpass devolve a cidade toda (grátis). */
 export async function collectPoisOsm(b: {
   minLat: number; minLng: number; maxLat: number; maxLng: number;
 }): Promise<{ pois: CollectedPoi[]; requests: number }> {
   const query = overpassQuery(b);
-  const res = await fetch(OVERPASS, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: "data=" + encodeURIComponent(query),
-  });
-  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-  const data = (await res.json()) as { elements?: OverpassEl[] };
+  const data = await overpassFetch(query);
   const byId = new Map<string, CollectedPoi>();
   for (const el of data.elements ?? []) {
     const tags = el.tags ?? {};
