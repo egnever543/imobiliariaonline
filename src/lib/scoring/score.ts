@@ -55,12 +55,22 @@ const DIST_IDEAL: Record<string, number> = {
   farmacia: 1000,
   escola: 1500,
   supermercado: 1000,
+  saude: 1500,
+  padaria: 800,
+  banco: 1500,
+  praca: 1000,
+  academia: 1200,
 };
 const CAT_IMP: Record<string, number> = {
-  hospital: 1.0,
-  farmacia: 0.6,
-  escola: 0.8,
-  supermercado: 0.7,
+  hospital: 0.8,
+  farmacia: 0.9,
+  escola: 1.0,
+  supermercado: 0.9,
+  saude: 0.5,
+  padaria: 0.4,
+  banco: 0.35,
+  praca: 0.4,
+  academia: 0.35,
 };
 
 const GEO_SCORE: Record<string, number> = {

@@ -2,9 +2,22 @@
 // (com o nome da imobiliária) e passa para o Explorer (client).
 
 import { getServiceClient } from "@/lib/supabase/server";
-import Explorer, { type Listing } from "./Explorer";
+import Explorer, { type Listing, type PoiPoint } from "./Explorer";
 
 export const dynamic = "force-dynamic";
+
+async function loadPois(): Promise<PoiPoint[]> {
+  try {
+    const db = getServiceClient();
+    const { data } = await db
+      .from("pois")
+      .select("name,category,lat,lng,rating,weight")
+      .limit(8000);
+    return (data ?? []) as PoiPoint[];
+  } catch {
+    return [];
+  }
+}
 
 async function loadListings(): Promise<Listing[]> {
   try {
@@ -30,6 +43,6 @@ async function loadListings(): Promise<Listing[]> {
 }
 
 export default async function Mapa() {
-  const listings = await loadListings();
-  return <Explorer listings={listings} />;
+  const [listings, pois] = await Promise.all([loadListings(), loadPois()]);
+  return <Explorer listings={listings} pois={pois} />;
 }

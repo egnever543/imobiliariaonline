@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { scoreListings, type ScorableListing } from "@/lib/scoring/score";
+import { scoreListings, haversine, type ScorableListing } from "@/lib/scoring/score";
 import {
   SCORE_PROFILES,
   DEFAULT_WEIGHTS,
@@ -43,6 +43,22 @@ export interface Listing {
   agency: string;
 }
 
+export interface PoiPoint {
+  name: string | null;
+  category: string;
+  lat: number;
+  lng: number;
+  rating: number | null;
+  weight: number;
+}
+
+// rótulo amigável por categoria de POI
+const POI_LABEL: Record<string, string> = {
+  escola: "escola", farmacia: "farmácia", supermercado: "mercado",
+  hospital: "hospital", saude: "saúde", padaria: "padaria",
+  banco: "banco", praca: "praça", academia: "academia",
+};
+
 const PALETTE = [
   "#2563eb", "#0ea5e9", "#7c3aed", "#0891b2",
   "#f59e0b", "#e11d48", "#10b981", "#f97316",
@@ -73,7 +89,7 @@ const scoreColor = (s: number) =>
 const scoreLabel = (s: number) =>
   s >= 70 ? "Excelente" : s >= 50 ? "Bom" : s >= 35 ? "Regular" : "Fraco";
 
-export default function Explorer({ listings }: { listings: Listing[] }) {
+export default function Explorer({ listings, pois = [] }: { listings: Listing[]; pois?: PoiPoint[] }) {
   const agencies = useMemo(
     () => [...new Set(listings.map((d) => d.agency))].sort(),
     [listings],
@@ -105,7 +121,29 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
   // ── menus sob demanda ──
   const [agOpen, setAgOpen] = useState(false);
   const [rankOpen, setRankOpen] = useState(false);
+  const [heatOn, setHeatOn] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // nota de vizinhança de um imóvel: comércios bons por perto (≤1,2 km),
+  // com peso e decaimento por distância. Devolve nota 0–100 + contagens.
+  function neighborhood(d: Listing | null) {
+    if (!d || d.lat == null || d.lng == null || !pois.length) return null;
+    const R = 1200;
+    let raw = 0;
+    let wsum = 0;
+    const counts: Record<string, number> = {};
+    for (const p of pois) {
+      const dist = haversine(d.lat, d.lng, p.lat, p.lng);
+      if (dist > R) continue;
+      counts[p.category] = (counts[p.category] ?? 0) + 1;
+      raw += p.weight * (1 - dist / R);
+      wsum += p.weight;
+    }
+    if (wsum === 0) return { score: 0, counts };
+    // normaliza contra um "bom" de referência (~6 pontos ponderados perto)
+    const score = Math.min(100, Math.round((raw / 6) * 100));
+    return { score, counts };
+  }
 
   // ── ranking ──
   const [scoreOn, setScoreOn] = useState(false);
@@ -133,11 +171,15 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
       id: d.id, price: d.price, area_total_m2: d.area_total_m2,
       lat: d.lat, lng: d.lng, geo_method: d.geo_method,
     }));
-    const res = scoreListings(scorable, { weights, coastline: ITAPOA_COASTLINE });
+    const res = scoreListings(scorable, {
+      weights,
+      coastline: ITAPOA_COASTLINE,
+      pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
+    });
     const m: Record<string, { score: number; factors: Record<ScoreFactor, number> }> = {};
     res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors }));
     return m;
-  }, [scoreOn, filtered, weights]);
+  }, [scoreOn, filtered, weights, pois]);
 
   const visible = useMemo(() => {
     if (!scoreOn) return filtered;
@@ -171,6 +213,7 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
   const layerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const LRef = useRef<typeof import("leaflet") | null>(null);
   const markersRef = useRef<Record<string, import("leaflet").Marker>>({});
+  const heatRef = useRef<import("leaflet").Layer | null>(null);
   const fitted = useRef(false);
   const [mapReady, setMapReady] = useState(false);
 
@@ -236,6 +279,38 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
       fitted.current = true;
     }
   }, [visible, scores, scoreOn, colors, mapReady, selected]);
+
+  // camada de calor (densidade ponderada de comércios bons)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !LRef.current) return;
+    let cancelled = false;
+    (async () => {
+      await import("leaflet.heat");
+      if (cancelled || !mapRef.current) return;
+      const Lh = LRef.current as unknown as {
+        heatLayer: (pts: [number, number, number][], opts: object) => import("leaflet").Layer;
+      };
+      if (heatRef.current) {
+        map.removeLayer(heatRef.current);
+        heatRef.current = null;
+      }
+      if (heatOn && pois.length) {
+        const maxW = Math.max(...pois.map((p) => p.weight), 1);
+        const pts = pois.map(
+          (p) => [p.lat, p.lng, p.weight / maxW] as [number, number, number],
+        );
+        heatRef.current = Lh.heatLayer(pts, {
+          radius: 34,
+          blur: 24,
+          maxZoom: 16,
+          minOpacity: 0.35,
+          gradient: { 0.2: "#1d4ed8", 0.45: "#0ea5e9", 0.65: "#10b981", 0.8: "#f59e0b", 1: "#e11d48" },
+        }).addTo(map);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [heatOn, pois, mapReady]);
 
   // voa até o selecionado
   useEffect(() => {
@@ -369,6 +444,13 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
             )}
           </div>
 
+          {pois.length > 0 && (
+            <button style={sx.menuBtn(heatOn)} onClick={() => setHeatOn((v) => !v)}
+              title="Mapa de calor de comércios (escola, farmácia, mercado, saúde…)">
+              🔥 Comércios
+            </button>
+          )}
+
           {activeFilters > 0 && (
             <button onClick={clearFilters} style={sx.clear}>limpar ({activeFilters})</button>
           )}
@@ -476,6 +558,28 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
                 {[selectedListing.street, selectedListing.neighborhood].filter(Boolean).join(", ") || "Endereço não informado"}
                 {isApprox(selectedListing) && " · 📍 aproximado"}
               </div>
+
+              {/* nota de vizinhança (comércios por perto) */}
+              {(() => {
+                const n = neighborhood(selectedListing);
+                if (!n) return null;
+                const cats = Object.entries(n.counts)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([c, q]) => `${q} ${POI_LABEL[c] ?? c}`)
+                  .slice(0, 4);
+                return (
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: "var(--paper-2)", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>Vizinhança (≤1,2 km)</span>
+                      <span style={{ background: scoreColor(n.score), color: "#fff", borderRadius: 7, padding: "2px 9px", fontSize: 12.5, fontWeight: 800 }}>{n.score}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+                      {cats.length ? cats.join(" · ") : "Nenhum comércio mapeado por perto."}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <a href={selectedListing.source_url} target="_blank" rel="noreferrer" className="btn" style={{ marginTop: 14, width: "100%" }}>
                 Ver anúncio →
               </a>
