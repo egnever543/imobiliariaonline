@@ -209,8 +209,45 @@ button:not(:disabled):active {
 /* ── Mapa tema escuro (sem chave): inverte os tiles claros do OSM ── */
 .leaflet-container {
   background: #0a1120;
+  font: inherit;
 }
 .leaflet-tile.map-dark {
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)
     saturate(0.8);
+}
+
+/* Popups e controles no estilo do app */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--ink);
+}
+.leaflet-popup-content {
+  margin: 12px 14px;
+}
+.leaflet-popup-tip {
+  background: var(--paper);
+  border: 1px solid var(--border);
+}
+.leaflet-bar,
+.leaflet-bar a {
+  border-radius: 10px !important;
+  border-color: var(--border) !important;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.leaflet-bar a:hover {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--paper) 80%, transparent) !important;
+  color: var(--muted) !important;
+  border-radius: 8px 0 0 0;
+}
+.leaflet-control-attribution a {
+  color: var(--accent) !important;
 }

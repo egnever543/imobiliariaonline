@@ -181,7 +181,8 @@ export default function Admin() {
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
           Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo
           o custo ao vivo.{" "}
-          <a href="/admin/coletar-cidade">Coletar cidade inteira →</a>
+          <a href="/admin/coletar-cidade">Coletar cidade inteira →</a>{" "}
+          · <a href="/admin/comercios">Comércios / mapa de calor →</a>
         </p>
 
       {/* Senha */}
