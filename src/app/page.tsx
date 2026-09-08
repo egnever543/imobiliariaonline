@@ -2,6 +2,7 @@
 // Supabase está configurado; senão, mostra o estado de configuração.
 
 import { getServiceClient } from "@/lib/supabase/server";
+import Nav from "@/components/Nav";
 
 export const dynamic = "force-dynamic";
 
@@ -68,113 +69,99 @@ export default async function Home() {
   const [stats, spend] = await Promise.all([loadStats(), loadSpend()]);
 
   return (
-    <main
-      style={{
-        maxWidth: 720,
-        margin: "0 auto",
-        padding: "64px 24px",
-      }}
-    >
-      <p
+    <>
+      <Nav />
+      <main
         style={{
-          fontFamily: "ui-monospace, monospace",
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          fontSize: 12,
-          color: "var(--accent)",
-          margin: 0,
+          maxWidth: 1080,
+          margin: "0 auto",
+          padding: "56px 24px 96px",
         }}
       >
-        Radar Imobiliário
-      </p>
-      <h1 style={{ fontSize: 34, margin: "8px 0 4px", letterSpacing: "-0.02em" }}>
-        Inventário da cidade, numa base só.
-      </h1>
-      <p style={{ color: "var(--muted)", marginTop: 0 }}>
-        Coleta o inventário público de imóveis e disponibiliza para busca e
-        inteligência de mercado. Este é o esqueleto do produto.
-      </p>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-        <a
-          href="/mapa"
+        {/* ── Hero ── */}
+        <span className="chip">Inteligência imobiliária</span>
+        <h1
           style={{
-            display: "inline-block",
-            padding: "8px 14px",
-            borderRadius: 8,
-            background: "var(--accent)",
-            color: "#fff",
-            fontSize: 14,
-            fontWeight: 600,
-            textDecoration: "none",
+            fontSize: "clamp(32px, 5vw, 50px)",
+            margin: "16px 0 8px",
+            maxWidth: 620,
           }}
         >
-          Ver mapa →
-        </a>
-        <a
-          href="/admin"
+          O inventário de imóveis da cidade, numa base só.
+        </h1>
+        <p
           style={{
-            display: "inline-block",
-            padding: "8px 14px",
-            borderRadius: 8,
-            background: "transparent",
-            border: "1px solid var(--border)",
-            color: "var(--ink)",
-            fontSize: 14,
-            fontWeight: 600,
-            textDecoration: "none",
-          }}
-        >
-          Painel de coleta
-        </a>
-      </div>
-
-      {stats ? (
-        <div style={{ display: "flex", gap: 12, marginTop: 32 }}>
-          {(
-            [
-              ["Cidades", stats.cities],
-              ["Imobiliárias", stats.agencies],
-              ["Imóveis", stats.listings],
-            ] as const
-          ).map(([label, value]) => (
-            <div
-              key={label}
-              style={{
-                flex: 1,
-                background: "var(--paper)",
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: 20,
-              }}
-            >
-              <div style={{ fontSize: 30, fontWeight: 700 }}>{value}</div>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>{label}</div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          style={{
-            marginTop: 32,
-            background: "var(--paper)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            padding: 20,
             color: "var(--muted)",
+            marginTop: 0,
+            fontSize: 17,
+            maxWidth: 560,
           }}
         >
-          <strong style={{ color: "var(--ink)" }}>
-            Supabase não configurado.
-          </strong>{" "}
-          Copie <code>.env.example</code> para <code>.env.local</code>, preencha
-          as chaves e rode a migração em <code>supabase/migrations</code>.
-        </div>
-      )}
+          Coletamos o inventário público de imóveis de uma cidade inteira e
+          entregamos tudo pronto para busca, mapa e inteligência de mercado.
+        </p>
 
-      {/* ── Gastos com IA ── */}
-      {spend.summary && (
-        <section style={{ marginTop: 36 }}>
+        <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+          <a href="/mapa" className="btn">
+            Ver mapa →
+          </a>
+          <a href="/admin" className="btn btn-ghost">
+            Painel de coleta
+          </a>
+        </div>
+
+        {stats ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 14,
+              marginTop: 44,
+            }}
+          >
+            {(
+              [
+                ["Cidades", stats.cities, "🗺️"],
+                ["Imobiliárias", stats.agencies, "🏢"],
+                ["Imóveis", stats.listings, "🏠"],
+              ] as const
+            ).map(([label, value, icon]) => (
+              <div key={label} className="card" style={{ padding: 22 }}>
+                <div style={{ fontSize: 18 }}>{icon}</div>
+                <div
+                  style={{
+                    fontSize: 34,
+                    fontWeight: 800,
+                    marginTop: 6,
+                    letterSpacing: "-0.03em",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {value.toLocaleString("pt-BR")}
+                </div>
+                <div style={{ color: "var(--muted)", fontSize: 13.5 }}>
+                  {label}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            className="card"
+            style={{ marginTop: 44, padding: 22, color: "var(--muted)" }}
+          >
+            <strong style={{ color: "var(--ink)" }}>
+              Supabase não configurado.
+            </strong>{" "}
+            Copie <code>.env.example</code> para <code>.env.local</code>,
+            preencha as chaves e rode a migração em{" "}
+            <code>supabase/migrations</code>.
+          </div>
+        )}
+
+        {/* ── Gastos com IA ── */}
+        {spend.summary && (
+          <section style={{ marginTop: 44 }}>
           <div
             style={{
               display: "flex",
@@ -199,15 +186,19 @@ export default async function Home() {
             ).map(([label, value]) => (
               <div
                 key={label}
-                style={{
-                  flex: 1,
-                  background: "var(--paper)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  padding: 16,
-                }}
+                className="card"
+                style={{ flex: 1, minWidth: 120, padding: 18 }}
               >
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{usd(value)}</div>
+                <div
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 800,
+                    letterSpacing: "-0.02em",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {usd(value)}
+                </div>
                 <div style={{ color: "var(--muted)", fontSize: 12 }}>{label}</div>
               </div>
             ))}
@@ -215,14 +206,8 @@ export default async function Home() {
 
           {spend.daily.length > 0 && (
             <div
-              style={{
-                marginTop: 12,
-                background: "var(--paper)",
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: "8px 16px",
-                fontSize: 13,
-              }}
+              className="card"
+              style={{ marginTop: 12, padding: "8px 16px", fontSize: 13 }}
             >
               {spend.daily.map((d) => (
                 <div
@@ -248,7 +233,8 @@ export default async function Home() {
             </div>
           )}
         </section>
-      )}
-    </main>
+        )}
+      </main>
+    </>
   );
 }

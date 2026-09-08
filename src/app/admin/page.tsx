@@ -5,6 +5,7 @@
 // vivo. Protegido por senha (ADMIN_TOKEN no servidor).
 
 import { useEffect, useRef, useState } from "react";
+import Nav from "@/components/Nav";
 
 interface DiscoverResp {
   cityId: string;
@@ -22,15 +23,16 @@ interface CollectResp {
 const box: React.CSSProperties = {
   background: "var(--paper)",
   border: "1px solid var(--border)",
-  borderRadius: 12,
+  borderRadius: "var(--radius)",
   padding: 20,
+  boxShadow: "var(--shadow-sm)",
 };
 const input: React.CSSProperties = {
   width: "100%",
-  padding: "8px 10px",
-  borderRadius: 8,
+  padding: "9px 11px",
+  borderRadius: "var(--radius-sm)",
   border: "1px solid var(--border)",
-  background: "transparent",
+  background: "var(--paper)",
   color: "var(--ink)",
   fontSize: 14,
 };
@@ -42,13 +44,14 @@ const label: React.CSSProperties = {
 };
 const btn: React.CSSProperties = {
   padding: "10px 16px",
-  borderRadius: 8,
+  borderRadius: "var(--radius-sm)",
   border: "none",
   background: "var(--accent)",
   color: "#fff",
   fontSize: 14,
   fontWeight: 600,
   cursor: "pointer",
+  boxShadow: "var(--shadow-sm)",
 };
 
 export default function Admin() {
@@ -170,19 +173,16 @@ export default function Admin() {
   const pct = maxItems ? Math.round((done / maxItems) * 100) : 0;
 
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px 96px" }}>
-      <a href="/" style={{ fontSize: 13 }}>
-        ← início
-      </a>{" "}
-      · <a href="/mapa" style={{ fontSize: 13 }}>ver mapa</a> ·{" "}
-      <a href="/admin/geo" style={{ fontSize: 13 }}>corrigir localização</a> ·{" "}
-      <a href="/admin/descobrir" style={{ fontSize: 13 }}>descobrir imobiliárias</a> ·{" "}
-      <a href="/admin/coletar-cidade" style={{ fontSize: 13 }}>coletar cidade</a>
-      <h1 style={{ fontSize: 26, margin: "8px 0 4px" }}>Coletar imóveis</h1>
-      <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14 }}>
-        Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo o
-        custo ao vivo.
-      </p>
+    <>
+      <Nav />
+      <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 24px 96px" }}>
+        <span className="chip">Painel</span>
+        <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Coletar imóveis</h1>
+        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
+          Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo
+          o custo ao vivo.{" "}
+          <a href="/admin/coletar-cidade">Coletar cidade inteira →</a>
+        </p>
 
       {/* Senha */}
       <div style={{ ...box, marginTop: 20 }}>
@@ -300,7 +300,7 @@ export default function Admin() {
             </button>
           ) : (
             <button
-              style={{ ...btn, background: "#b5651d" }}
+              style={{ ...btn, background: "var(--warn)" }}
               onClick={() => (abort.current = true)}
             >
               ⏹ Parar
@@ -362,8 +362,9 @@ export default function Admin() {
               ))}
             </div>
           )}
-        </div>
-      )}
-    </main>
+          </div>
+        )}
+      </main>
+    </>
   );
 }

@@ -1,20 +1,58 @@
+/* ─────────────────────────────────────────────────────────────
+   Design system — Radar Imobiliário (SaaS branco/azul)
+   Todas as telas usam estes tokens; mudar aqui muda o app inteiro.
+   ───────────────────────────────────────────────────────────── */
 :root {
-  --bg: #eef1ec;
+  /* superfícies */
+  --bg: #f4f7fc;
   --paper: #ffffff;
-  --ink: #18211c;
-  --muted: #5c6a61;
-  --border: #dde2db;
-  --accent: #14776b;
+  --paper-2: #f8fafd;
+  --ink: #0f1e34;
+  --muted: #607089;
+  --border: #e4eaf3;
+
+  /* marca (azul) */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-weak: #eef4ff;
+  --accent-ink: #1b47b8;
+
+  /* estados */
+  --ok: #0f9d76;
+  --warn: #c2711c;
+  --danger: #d4443b;
+
+  /* efeitos */
+  --ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  --shadow-sm: 0 1px 2px rgba(15, 30, 52, 0.06);
+  --shadow: 0 8px 24px -10px rgba(15, 30, 52, 0.18), 0 2px 6px rgba(15, 30, 52, 0.05);
+  --shadow-lg: 0 24px 60px -20px rgba(15, 30, 52, 0.28);
+  --radius: 14px;
+  --radius-sm: 9px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0e1310;
-    --paper: #151c18;
-    --ink: #e6ece7;
-    --muted: #9aa89f;
-    --border: #26302a;
-    --accent: #4bb8a6;
+    --bg: #0a1120;
+    --paper: #111c31;
+    --paper-2: #0e1728;
+    --ink: #e8eefb;
+    --muted: #93a4c0;
+    --border: #1e2b45;
+
+    --accent: #5b93ff;
+    --accent-hover: #7aa8ff;
+    --accent-weak: #14203a;
+    --accent-ink: #a9c6ff;
+
+    --ok: #35c79b;
+    --warn: #e0a24c;
+    --danger: #ff6b61;
+
+    --ring: 0 0 0 3px rgba(91, 147, 255, 0.35);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
   }
 }
 
@@ -29,24 +67,148 @@ body {
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 600px at 100% -10%, var(--accent-weak) 0%, transparent 55%),
+    var(--bg);
   color: var(--ink);
   font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+    var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 a {
   color: var(--accent);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+a:hover {
+  color: var(--accent-hover);
+}
+
+/* Controles de formulário — foco e transições consistentes */
+input,
+select,
+textarea {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: var(--ring);
+}
+
+button {
+  font-family: inherit;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease,
+    filter 0.15s ease,
+    opacity 0.15s ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Scrollbar discreta (webkit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* ── Utilitários reutilizáveis ────────────────────────────────── */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+/* botão primário e secundário como classes (para novas telas) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.btn:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-ghost {
+  background: var(--paper);
+  border-color: var(--border);
+  color: var(--ink);
+  box-shadow: none;
+}
+.btn-ghost:not(:disabled):hover {
+  background: var(--paper-2);
+  border-color: var(--accent);
+  color: var(--accent);
+  filter: none;
+}
+
+/* chip / badge */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* ── Mapa tema escuro (sem chave): inverte os tiles claros do OSM ── */
 .leaflet-container {
-  background: #0e1310;
+  background: #0a1120;
 }
 .leaflet-tile.map-dark {
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)
