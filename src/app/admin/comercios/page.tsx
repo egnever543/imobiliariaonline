@@ -25,6 +25,7 @@ interface Done { imoveis: number; cells: number; requests: number; collected: nu
 export default function Comercios() {
   const [token, setToken] = useState("");
   const [citySlug, setCitySlug] = useState("itapoa-sc");
+  const [mode, setMode] = useState<"city" | "listings">("city");
   const [maxCells, setMaxCells] = useState(0);
   const [busy, setBusy] = useState(false);
   const [est, setEst] = useState<Est | null>(null);
@@ -40,7 +41,7 @@ export default function Comercios() {
     try {
       const res = await fetch("/api/pois/collect", {
         method: "POST", headers: headers(),
-        body: JSON.stringify({ citySlug, dryRun, maxCells: maxCells || undefined }),
+        body: JSON.stringify({ citySlug, mode, dryRun, maxCells: maxCells || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -79,6 +80,30 @@ export default function Comercios() {
               <label style={label}>Máx. de células (0 = todas)</label>
               <input style={input} type="number" min={0} value={maxCells} onChange={(e) => setMaxCells(Number(e.target.value))} />
             </div>
+          </div>
+          <div>
+            <label style={label}>Cobertura</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {([
+                ["city", "Cidade (redondezas)"],
+                ["listings", "Perto dos imóveis"],
+              ] as const).map(([m, lbl]) => (
+                <button key={m} onClick={() => { setMode(m); setEst(null); }}
+                  style={{
+                    flex: 1, padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                    border: `1px solid ${mode === m ? "var(--accent)" : "var(--border)"}`,
+                    background: mode === m ? "var(--accent)" : "var(--paper)",
+                    color: mode === m ? "#fff" : "var(--muted)",
+                  }}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 0" }}>
+              {mode === "city"
+                ? "Cobre a região toda (imóveis + margem) — o cliente vê as redondezas. Custa mais; estime antes."
+                : "Só em volta dos imóveis — mais barato, menos cobertura."}
+            </p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-ghost" onClick={() => call(true)} disabled={busy || !token}>

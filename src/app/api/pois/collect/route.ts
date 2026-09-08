@@ -6,7 +6,7 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
-import { collectPois, estimate, gridCells } from "@/lib/ingest/pois";
+import { collectPois, estimate, gridCells, boundsOf, bboxCells } from "@/lib/ingest/pois";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -53,18 +53,29 @@ export async function POST(req: Request) {
     );
   }
 
-  let cells = gridCells(points);
+  // modo de cobertura:
+  //  - "city"     → grade sobre a região toda (imóveis + margem)
+  //  - "listings" → só em volta dos imóveis (mais barato)
+  const mode = body.mode === "listings" ? "listings" : "city";
+  let cells: { lat: number; lng: number }[];
+  if (mode === "city") {
+    const margin = typeof body.marginKm === "number" ? body.marginKm * 0.009 : 0.018;
+    const b = boundsOf(points, margin);
+    cells = b ? bboxCells(b) : gridCells(points);
+  } else {
+    cells = gridCells(points);
+  }
   if (body.maxCells && cells.length > body.maxCells) {
     cells = cells.slice(0, body.maxCells);
   }
 
   // estimativa (grátis)
   if (body.dryRun) {
-    return Response.json({ dryRun: true, imoveis: points.length, ...estimate(cells.length) });
+    return Response.json({ dryRun: true, mode, imoveis: points.length, ...estimate(cells.length) });
   }
 
   // coleta de verdade
-  const { pois, requests, cells: usedCells } = await collectPois(points, {
+  const { pois, requests, cells: usedCells } = await collectPois(cells, {
     maxCells: body.maxCells,
   });
 

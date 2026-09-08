@@ -59,6 +59,38 @@ export function gridCells(
   return [...seen.values()];
 }
 
+/** Caixa (bbox) que contém os pontos, com uma margem em graus (~0.009 = 1 km). */
+export function boundsOf(
+  points: { lat: number; lng: number }[],
+  marginDeg = 0.018,
+): { minLat: number; maxLat: number; minLng: number; maxLng: number } | null {
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  for (const p of points) {
+    if (p.lat == null || p.lng == null) continue;
+    minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat);
+    minLng = Math.min(minLng, p.lng); maxLng = Math.max(maxLng, p.lng);
+  }
+  if (!Number.isFinite(minLat)) return null;
+  return {
+    minLat: minLat - marginDeg, maxLat: maxLat + marginDeg,
+    minLng: minLng - marginDeg, maxLng: maxLng + marginDeg,
+  };
+}
+
+/** Preenche uma bbox inteira com centros de célula (cobre a região toda). */
+export function bboxCells(
+  b: { minLat: number; maxLat: number; minLng: number; maxLng: number },
+  cell = CELL_DEG,
+): { lat: number; lng: number }[] {
+  const cells: { lat: number; lng: number }[] = [];
+  for (let lat = b.minLat; lat <= b.maxLat; lat += cell) {
+    for (let lng = b.minLng; lng <= b.maxLng; lng += cell) {
+      cells.push({ lat: Math.round(lat / cell) * cell, lng: Math.round(lng / cell) * cell });
+    }
+  }
+  return cells;
+}
+
 /** Estimativa (sem gastar): nº de requisições e custo aproximado. */
 export function estimate(cells: number) {
   const requests = cells * POI_CATEGORIES.length;
@@ -95,17 +127,17 @@ interface GoogleResult {
 }
 
 /**
- * Coleta POIs em volta das coordenadas dadas. Deduplica por place_id.
- * Faz uma requisição por (célula × categoria). Respeita `maxRequests`.
+ * Coleta POIs nas células dadas. Deduplica por place_id.
+ * Faz uma requisição por (célula × categoria). Respeita `maxCells`.
  */
 export async function collectPois(
-  points: { lat: number; lng: number }[],
+  cellsIn: { lat: number; lng: number }[],
   opts: { maxCells?: number } = {},
 ): Promise<{ pois: CollectedPoi[]; requests: number; cells: number }> {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) throw new Error("GOOGLE_MAPS_API_KEY não configurada.");
 
-  let cells = gridCells(points);
+  let cells = cellsIn;
   if (opts.maxCells && cells.length > opts.maxCells) cells = cells.slice(0, opts.maxCells);
 
   const byId = new Map<string, CollectedPoi>();
