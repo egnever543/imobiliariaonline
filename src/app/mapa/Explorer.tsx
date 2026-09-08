@@ -1,9 +1,9 @@
 "use client";
 
 // ── Explorador de imóveis ─────────────────────────────────────────────
-// Reconstrói o app antigo: mapa + lista + estatísticas + filtros
-// (imobiliária, bairro, preço, tipo) + abas Todos/Incompletos + ranking
-// com perfis e sliders.
+// App de mercado: mapa em tela cheia + sidebar de filtros/estatísticas +
+// cards de imóvel + ranking inteligente. Visual SaaS (branco/azul), tokens
+// de tema, cards com sombra e uma barra flutuante de estatísticas no mapa.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
@@ -36,15 +36,16 @@ export interface Listing {
   agency: string;
 }
 
+// paleta de imobiliárias (tons distintos, harmonizados com o azul de marca)
 const PALETTE = [
-  "#3b82f6", "#f59e0b", "#10b981", "#ef4444",
-  "#8b5cf6", "#ec4899", "#06b6d4", "#f97316",
+  "#2563eb", "#0ea5e9", "#7c3aed", "#0891b2",
+  "#f59e0b", "#e11d48", "#10b981", "#f97316",
 ];
 const FACTORS: { key: ScoreFactor; label: string; icon: string; color: string }[] = [
-  { key: "beach", label: "Praia", icon: "🏖️", color: "#06b6d4" },
-  { key: "poi", label: "POIs", icon: "📍", color: "#e94560" },
+  { key: "beach", label: "Praia", icon: "🏖️", color: "#0ea5e9" },
+  { key: "poi", label: "POIs", icon: "📍", color: "#e11d48" },
   { key: "pricePerM2", label: "R$/m²", icon: "💰", color: "#10b981" },
-  { key: "geoQuality", label: "Geo", icon: "📌", color: "#3b82f6" },
+  { key: "geoQuality", label: "Geo", icon: "📌", color: "#2563eb" },
   { key: "area", label: "Área", icon: "📐", color: "#f59e0b" },
 ];
 
@@ -136,10 +137,12 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
 
   const stats = useMemo(() => {
     const precos = filtered.map((d) => d.price).filter(Boolean) as number[];
+    const m2s = filtered.map((d) => perM2(d)).filter(Boolean) as number[];
     return {
       count: filtered.length,
       min: precos.length ? Math.min(...precos) : null,
       max: precos.length ? Math.max(...precos) : null,
+      medM2: m2s.length ? Math.round(m2s.reduce((a, b) => a + b, 0) / m2s.length) : null,
     };
   }, [filtered]);
 
@@ -147,6 +150,8 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
     () => listings.filter(isIncompleto).length,
     [listings],
   );
+
+  const activeFilters = (bairro ? 1 : 0) + (tipo ? 1 : 0) + (pmin ? 1 : 0) + (pmax ? 1 : 0);
 
   // ── mapa ──
   const mapRef = useRef<import("leaflet").Map | null>(null);
@@ -164,7 +169,8 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
       const el = document.getElementById("exp-map");
       if (!el || (el as HTMLElement).dataset.init) return;
       (el as HTMLElement).dataset.init = "1";
-      const map = L.map(el, { zoomControl: true }).setView([-26.11, -48.61], 12);
+      const map = L.map(el, { zoomControl: false }).setView([-26.11, -48.61], 12);
+      L.control.zoom({ position: "bottomright" }).addTo(map);
       const carto = process.env.NEXT_PUBLIC_CARTO_KEY;
       if (carto) {
         L.tileLayer(
@@ -197,28 +203,29 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
     const pts: [number, number][] = [];
     visible.forEach((d) => {
       if (d.lat == null || d.lng == null) return;
-      const color = colors[d.agency] || "#10b981";
+      const color = colors[d.agency] || "#2563eb";
       const approx = isApprox(d);
       const sc = scoreOn ? scores[d.id]?.score : undefined;
       const html = `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
-        <div style="background:${color};color:#fff;padding:2px 7px;border-radius:6px;font:600 11px system-ui;white-space:nowrap;${approx ? "opacity:.7;border:1px dashed #fff;" : ""}">${shortPrice(d.price)}</div>
-        ${sc != null ? `<div style="background:${scoreColor(sc)};color:#fff;border-radius:4px;padding:0 5px;font:700 9px system-ui;">${sc}</div>` : ""}
+        <div style="background:${color};color:#fff;padding:3px 8px;border-radius:8px;font:700 11px system-ui;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35);${approx ? "opacity:.75;border:1px dashed rgba(255,255,255,.9);" : "border:1px solid rgba(255,255,255,.25);"}">${shortPrice(d.price)}</div>
+        ${sc != null ? `<div style="background:${scoreColor(sc)};color:#fff;border-radius:5px;padding:0 6px;font:700 9px system-ui;box-shadow:0 1px 3px rgba(0,0,0,.3);">${sc}</div>` : ""}
       </div>`;
-      const icon = L.divIcon({ className: "", html, iconSize: [70, sc != null ? 36 : 20], iconAnchor: [35, sc != null ? 18 : 10] });
+      const icon = L.divIcon({ className: "", html, iconSize: [76, sc != null ? 38 : 22], iconAnchor: [38, sc != null ? 19 : 11] });
       const p2 = perM2(d);
-      const popup = `<div style="font:13px system-ui;min-width:190px;">
-        <div style="font-weight:700;">${d.title ?? d.type ?? "Imóvel"}</div>
-        <div style="font-size:15px;font-weight:700;color:#14776b;">${fmtPrice(d.price)}${p2 ? ` <span style="font-size:11px;color:#888;font-weight:600;">· R$${p2.toLocaleString("pt-BR")}/m²</span>` : ""}</div>
-        <div style="color:#555;">${d.area_total_m2 ? fmtArea(d.area_total_m2) + "<br>" : ""}${d.neighborhood ? d.neighborhood + "<br>" : ""}<b>${d.agency}</b></div>
+      const popup = `<div style="font:13px system-ui;min-width:200px;">
+        <div style="font-weight:700;margin-bottom:2px;">${d.title ?? d.type ?? "Imóvel"}</div>
+        <div style="font-size:16px;font-weight:800;color:#2563eb;">${fmtPrice(d.price)}${p2 ? ` <span style="font-size:11px;color:#94a3b8;font-weight:600;">· R$${p2.toLocaleString("pt-BR")}/m²</span>` : ""}</div>
+        <div style="color:#64748b;margin-top:2px;">${d.area_total_m2 ? fmtArea(d.area_total_m2) + " · " : ""}${d.neighborhood ? d.neighborhood : ""}</div>
+        <div style="color:#334155;margin-top:2px;"><b>${d.agency}</b></div>
         ${sc != null ? `<div style="margin-top:4px;color:${scoreColor(sc)};font-weight:700;">Score ${sc} · ${scoreLabel(sc)}</div>` : ""}
-        ${approx ? '<div style="color:#b5651d;font-size:11px;">📍 aproximado</div>' : ""}
-        <a href="${d.source_url}" target="_blank" rel="noreferrer" style="color:#14776b;">ver anúncio →</a>
+        ${approx ? '<div style="color:#c2711c;font-size:11px;margin-top:2px;">📍 localização aproximada</div>' : ""}
+        <a href="${d.source_url}" target="_blank" rel="noreferrer" style="display:inline-block;margin-top:6px;color:#2563eb;font-weight:600;">ver anúncio →</a>
       </div>`;
-      L.marker([d.lat, d.lng], { icon }).addTo(layer).bindPopup(popup, { maxWidth: 260 });
+      L.marker([d.lat, d.lng], { icon }).addTo(layer).bindPopup(popup, { maxWidth: 280 });
       pts.push([d.lat, d.lng]);
     });
     if (!fitted.current && pts.length) {
-      map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+      map.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
       fitted.current = true;
     }
   }, [visible, scores, scoreOn, colors, mapReady]);
@@ -234,97 +241,105 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
     setProfile("custom");
     setWeights((w) => ({ ...w, [key]: v }));
   }
-
-  // ── estilos ──
-  const S = {
-    side: { width: 360, minWidth: 320, height: "100vh", overflow: "auto", borderRight: "1px solid var(--border)", background: "var(--bg)" } as React.CSSProperties,
-    pad: { padding: 14 } as React.CSSProperties,
-    filterBtn: (on: boolean, c: string) => ({
-      padding: "4px 9px", borderRadius: 6, border: `1px solid ${on ? c : "var(--border)"}`,
-      background: on ? "var(--paper)" : "transparent", color: on ? "var(--ink)" : "var(--muted)",
-      fontSize: 11, cursor: "pointer", fontWeight: 600,
-    }) as React.CSSProperties,
-    sel: { width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--ink)", fontSize: 13 } as React.CSSProperties,
-  };
+  function clearFilters() {
+    setBairro(""); setTipo(""); setPmin(""); setPmax("");
+    setActiveAg(new Set(agencies));
+  }
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      <div style={S.side}>
-        <div style={{ ...S.pad, borderBottom: "1px solid var(--border)" }}>
-          <a href="/" style={{ fontSize: 12 }}>← início</a> ·{" "}
-          <a href="/admin" style={{ fontSize: 12 }}>painel</a>
-          <h1 style={{ fontSize: 20, margin: "6px 0 0" }}>Imóveis</h1>
-          <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-            {stats.count} imóveis
+    <div style={{ display: "flex", height: "100vh", background: "var(--bg)" }}>
+      {/* ───────── Sidebar ───────── */}
+      <aside style={sx.side}>
+        {/* cabeçalho */}
+        <div style={{ ...sx.pad, position: "sticky", top: 0, zIndex: 5, background: "var(--paper)", borderBottom: "1px solid var(--border)" }}>
+          <a href="/" style={sx.brand}>
+            <span style={sx.logo} aria-hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" />
+              </svg>
+            </span>
+            Radar Imobiliário
+          </a>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginTop: 12 }}>
+            <h1 style={{ fontSize: 19, margin: 0 }}>Imóveis</h1>
+            <span className="chip">{stats.count} resultados</span>
           </div>
           {/* estatísticas */}
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 12 }}>
             {[
-              ["Imóveis", String(stats.count)],
+              ["Total", String(stats.count)],
               ["Menor", shortPrice(stats.min)],
               ["Maior", shortPrice(stats.max)],
+              ["R$/m²", stats.medM2 ? shortPrice(stats.medM2) : "—"],
             ].map(([l, v]) => (
-              <div key={l} style={{ flex: 1, background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 6px", textAlign: "center" }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{v}</div>
-                <div style={{ fontSize: 10, color: "var(--muted)" }}>{l}</div>
+              <div key={l} style={sx.stat}>
+                <div style={{ fontWeight: 800, fontSize: 13.5, letterSpacing: "-0.02em" }}>{v}</div>
+                <div style={{ fontSize: 9.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{l}</div>
               </div>
             ))}
           </div>
         </div>
 
         {/* filtros */}
-        <div style={{ ...S.pad, borderBottom: "1px solid var(--border)", display: "grid", gap: 10 }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {agencies.map((a) => {
-              const on = activeAg.has(a);
-              return (
-                <button key={a} style={S.filterBtn(on, colors[a])}
-                  onClick={() => {
-                    const s = new Set(activeAg);
-                    if (s.has(a)) s.delete(a); else s.add(a);
-                    setActiveAg(s);
-                  }}>
-                  <span style={{ color: colors[a] }}>●</span> {a}
-                </button>
-              );
-            })}
+        <div style={{ ...sx.pad, borderBottom: "1px solid var(--border)", display: "grid", gap: 12 }}>
+          <div style={sx.rowHead}>
+            <span style={sx.secTitle}>Filtros</span>
+            {activeFilters > 0 && (
+              <button onClick={clearFilters} style={sx.clear}>limpar ({activeFilters})</button>
+            )}
           </div>
-          <select style={S.sel} value={bairro} onChange={(e) => setBairro(e.target.value)}>
-            <option value="">Todos os bairros</option>
-            {bairros.map((b) => (
-              <option key={b} value={b}>
-                {b} ({listings.filter((d) => d.neighborhood === b).length})
-              </option>
-            ))}
-          </select>
-          <select style={S.sel} value={tipo} onChange={(e) => setTipo(e.target.value)}>
-            <option value="">Todos os tipos</option>
-            {tipos.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input style={S.sel} placeholder="R$ mín" value={pmin} onChange={(e) => setPmin(e.target.value)} />
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>até</span>
-            <input style={S.sel} placeholder="R$ máx" value={pmax} onChange={(e) => setPmax(e.target.value)} />
+          <div style={{ display: "grid", gap: 8 }}>
+            <select style={sx.sel} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+              <option value="">Todos os tipos</option>
+              {tipos.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <select style={sx.sel} value={bairro} onChange={(e) => setBairro(e.target.value)}>
+              <option value="">Todos os bairros</option>
+              {bairros.map((b) => (
+                <option key={b} value={b}>
+                  {b} ({listings.filter((d) => d.neighborhood === b).length})
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input style={sx.sel} placeholder="R$ mín" value={pmin} onChange={(e) => setPmin(e.target.value)} />
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>—</span>
+              <input style={sx.sel} placeholder="R$ máx" value={pmax} onChange={(e) => setPmax(e.target.value)} />
+            </div>
+          </div>
+          {/* imobiliárias */}
+          <div>
+            <span style={{ ...sx.secTitle, display: "block", marginBottom: 6 }}>Imobiliárias</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {agencies.map((a) => {
+                const on = activeAg.has(a);
+                return (
+                  <button key={a} style={sx.tag(on, colors[a])}
+                    onClick={() => {
+                      const s = new Set(activeAg);
+                      if (s.has(a)) s.delete(a); else s.add(a);
+                      setActiveAg(s);
+                    }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 99, background: colors[a], display: "inline-block", opacity: on ? 1 : 0.4 }} /> {a}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* ranking */}
-        <div style={{ ...S.pad, borderBottom: "1px solid var(--border)" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: scoreOn ? 10 : 0 }}>
-            <input type="checkbox" checked={scoreOn} onChange={(e) => setScoreOn(e.target.checked)} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>🏆 Ranking inteligente</span>
+        <div style={{ ...sx.pad, borderBottom: "1px solid var(--border)" }}>
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>🏆 Ranking inteligente</span>
+            <input type="checkbox" checked={scoreOn} onChange={(e) => setScoreOn(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
           </label>
           {scoreOn && (
-            <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {SCORE_PROFILES.map((p) => (
                   <button key={p.id} title={p.desc} onClick={() => applyProfile(p.id)}
-                    style={{
-                      padding: "4px 9px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontWeight: 600,
-                      border: `1px solid ${profile === p.id ? "#10b981" : "var(--border)"}`,
-                      background: profile === p.id ? "#10b981" : "transparent",
-                      color: profile === p.id ? "#fff" : "var(--muted)",
-                    }}>
+                    style={sx.profile(profile === p.id)}>
                     {p.label}
                   </button>
                 ))}
@@ -335,7 +350,7 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
                   <input type="range" min={0} max={100} value={weights[f.key]}
                     onChange={(e) => setW(f.key, parseInt(e.target.value))}
                     style={{ flex: 1, accentColor: f.color }} />
-                  <span style={{ fontSize: 11, minWidth: 30, textAlign: "right", color: f.color, fontWeight: 600 }}>{weights[f.key]}%</span>
+                  <span style={{ fontSize: 11, minWidth: 30, textAlign: "right", color: f.color, fontWeight: 700 }}>{weights[f.key]}%</span>
                 </div>
               ))}
             </div>
@@ -343,15 +358,9 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
         </div>
 
         {/* abas */}
-        <div style={{ display: "flex", gap: 6, ...S.pad, paddingBottom: 8 }}>
+        <div style={{ display: "flex", gap: 4, padding: "12px 14px 8px" }}>
           {(["todos", "incompleto"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-              style={{
-                flex: 1, padding: "6px 8px", borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer",
-                border: `1px solid ${tab === t ? "#10b981" : "var(--border)"}`,
-                background: tab === t ? "#10b981" : "transparent",
-                color: tab === t ? "#fff" : "var(--muted)",
-              }}>
+            <button key={t} onClick={() => setTab(t)} style={sx.seg(tab === t)}>
               {t === "todos" ? "Todos" : `⚠️ Incompletos (${totalIncompleto})`}
             </button>
           ))}
@@ -360,7 +369,7 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
         {/* lista */}
         <div style={{ padding: "0 14px 24px" }}>
           {visible.length === 0 && (
-            <div style={{ color: "var(--muted)", fontSize: 13, padding: 20, textAlign: "center" }}>
+            <div style={{ color: "var(--muted)", fontSize: 13, padding: 24, textAlign: "center" }}>
               Nenhum imóvel com esses filtros.
             </div>
           )}
@@ -370,31 +379,125 @@ export default function Explorer({ listings }: { listings: Listing[] }) {
             return (
               <div key={d.id}
                 onClick={() => { if (d.lat && d.lng && mapRef.current) mapRef.current.setView([d.lat, d.lng], 16); }}
-                style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12, marginBottom: 8, cursor: "pointer", background: "var(--paper)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#14776b" }}>
-                    {fmtPrice(d.price)}
-                    {p2 && <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}> · R${p2.toLocaleString("pt-BR")}/m²</span>}
+                style={sx.card}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)", letterSpacing: "-0.02em" }}>
+                      {fmtPrice(d.price)}
+                    </div>
+                    {p2 && <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>R$ {p2.toLocaleString("pt-BR")}/m²</div>}
                   </div>
                   {sc != null && (
-                    <span style={{ background: scoreColor(sc), color: "#fff", borderRadius: 6, padding: "1px 7px", fontSize: 12, fontWeight: 700, height: "fit-content" }}>{sc}</span>
+                    <span style={{ background: scoreColor(sc), color: "#fff", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 800, height: "fit-content" }}>{sc}</span>
                   )}
                 </div>
-                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
+                {d.type && (
+                  <span style={{ ...sx.pill, marginTop: 8 }}>{d.type}</span>
+                )}
+                <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>
                   {d.area_total_m2 ? fmtArea(d.area_total_m2) + " · " : ""}{d.neighborhood ?? "sem bairro"}
                 </div>
-                <div style={{ fontSize: 11, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: colors[d.agency] }}>●</span>
+                <div style={{ fontSize: 11, marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 99, background: colors[d.agency], display: "inline-block" }} />
                   <span style={{ color: "var(--muted)" }}>{d.agency}</span>
-                  {isApprox(d) && <span style={{ color: "#b5651d" }}>· 📍 aprox.</span>}
+                  {isApprox(d) && <span style={{ color: "var(--warn)" }}>· 📍 aprox.</span>}
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
+      </aside>
 
-      <div id="exp-map" style={{ flex: 1, height: "100vh" }} />
+      {/* ───────── Mapa ───────── */}
+      <div style={{ flex: 1, position: "relative" }}>
+        <div id="exp-map" style={{ position: "absolute", inset: 0 }} />
+        {/* barra flutuante de contexto */}
+        <div style={sx.floatBar}>
+          <span style={{ fontWeight: 700, fontSize: 13 }}>{visible.length}</span>
+          <span style={{ color: "var(--muted)", fontSize: 12.5 }}>imóveis no mapa</span>
+          {stats.min && stats.max && (
+            <span style={{ color: "var(--muted)", fontSize: 12.5, borderLeft: "1px solid var(--border)", paddingLeft: 10 }}>
+              {shortPrice(stats.min)} – {shortPrice(stats.max)}
+            </span>
+          )}
+          {scoreOn && <span className="chip" style={{ marginLeft: 2 }}>ranking ativo</span>}
+        </div>
+      </div>
     </div>
   );
 }
+
+// ── estilos ──
+const sx = {
+  side: {
+    width: 380, minWidth: 340, height: "100vh", overflow: "auto",
+    borderRight: "1px solid var(--border)", background: "var(--paper)",
+  } as React.CSSProperties,
+  pad: { padding: 14 } as React.CSSProperties,
+  brand: {
+    display: "inline-flex", alignItems: "center", gap: 9,
+    color: "var(--ink)", fontWeight: 700, fontSize: 15, letterSpacing: "-0.02em",
+  } as React.CSSProperties,
+  logo: {
+    display: "grid", placeItems: "center", width: 26, height: 26, borderRadius: 7,
+    background: "var(--accent)", color: "#fff", boxShadow: "var(--shadow-sm)",
+  } as React.CSSProperties,
+  stat: {
+    background: "var(--paper-2)", border: "1px solid var(--border)",
+    borderRadius: 9, padding: "8px 6px", textAlign: "center",
+  } as React.CSSProperties,
+  rowHead: { display: "flex", alignItems: "center", justifyContent: "space-between" } as React.CSSProperties,
+  secTitle: {
+    fontSize: 11, fontWeight: 700, color: "var(--muted)",
+    textTransform: "uppercase", letterSpacing: "0.06em",
+  } as React.CSSProperties,
+  clear: {
+    background: "transparent", border: "none", color: "var(--accent)",
+    fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: 0,
+  } as React.CSSProperties,
+  sel: {
+    width: "100%", padding: "9px 10px", borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--border)", background: "var(--paper)",
+    color: "var(--ink)", fontSize: 13,
+  } as React.CSSProperties,
+  tag: (on: boolean, c: string) => ({
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "5px 10px", borderRadius: 999,
+    border: `1px solid ${on ? c : "var(--border)"}`,
+    background: on ? "var(--accent-weak)" : "transparent",
+    color: on ? "var(--ink)" : "var(--muted)",
+    fontSize: 11.5, cursor: "pointer", fontWeight: 600,
+  }) as React.CSSProperties,
+  profile: (on: boolean) => ({
+    padding: "5px 11px", borderRadius: 999, fontSize: 11.5, cursor: "pointer", fontWeight: 600,
+    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+    background: on ? "var(--accent)" : "transparent",
+    color: on ? "#fff" : "var(--muted)",
+  }) as React.CSSProperties,
+  seg: (on: boolean) => ({
+    flex: 1, padding: "8px 8px", borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: "pointer",
+    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+    background: on ? "var(--accent)" : "var(--paper)",
+    color: on ? "#fff" : "var(--muted)",
+  }) as React.CSSProperties,
+  card: {
+    border: "1px solid var(--border)", borderRadius: "var(--radius)",
+    padding: 13, marginBottom: 9, cursor: "pointer", background: "var(--paper)",
+    boxShadow: "var(--shadow-sm)", transition: "border-color .15s ease",
+  } as React.CSSProperties,
+  pill: {
+    display: "inline-block", padding: "2px 9px", borderRadius: 999,
+    background: "var(--accent-weak)", color: "var(--accent-ink)",
+    fontSize: 11, fontWeight: 600,
+  } as React.CSSProperties,
+  floatBar: {
+    position: "absolute", top: 16, left: 16, zIndex: 500,
+    display: "flex", alignItems: "center", gap: 10,
+    padding: "9px 14px", borderRadius: 999,
+    background: "color-mix(in srgb, var(--paper) 90%, transparent)",
+    backdropFilter: "saturate(1.6) blur(10px)",
+    border: "1px solid var(--border)", boxShadow: "var(--shadow)",
+  } as React.CSSProperties,
+};
