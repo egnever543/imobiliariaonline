@@ -43,6 +43,87 @@ const RADIUS_M = 750;      // raio da busca por célula
 const MIN_RATING = 3.8;    // nota mínima p/ categorias "requireGood"
 const MIN_VOTES = 5;
 
+// peso por categoria (compartilhado por Google e OSM)
+export const CAT_WEIGHT: Record<string, number> = {
+  escola: 3, farmacia: 3, supermercado: 3, hospital: 2.5,
+  saude: 2, padaria: 1.5, banco: 1.2, praca: 1.2, academia: 1.2,
+};
+
+// ── OpenStreetMap / Overpass (grátis, cidade inteira em 1 consulta) ────
+const OVERPASS = "https://overpass-api.de/api/interpreter";
+
+// tag OSM (chave=valor) → categoria normalizada
+function osmCategory(tags: Record<string, string>): string | null {
+  const a = tags.amenity, s = tags.shop, l = tags.leisure;
+  if (a === "school" || a === "kindergarten" || a === "college" || a === "university") return "escola";
+  if (a === "pharmacy") return "farmacia";
+  if (a === "hospital") return "hospital";
+  if (a === "clinic" || a === "doctors" || a === "health_post") return "saude";
+  if (a === "bank") return "banco";
+  if (s === "supermarket" || s === "grocery") return "supermercado";
+  if (s === "bakery") return "padaria";
+  if (l === "park" || l === "garden") return "praca";
+  if (l === "fitness_centre" || l === "sports_centre" || a === "gym") return "academia";
+  return null;
+}
+
+/** Monta a consulta Overpass que traz todos os comércios bons da bbox. */
+export function overpassQuery(b: {
+  minLat: number; minLng: number; maxLat: number; maxLng: number;
+}): string {
+  const bbox = `${b.minLat},${b.minLng},${b.maxLat},${b.maxLng}`;
+  const sel = [
+    `nwr["amenity"~"^(school|kindergarten|college|university|pharmacy|hospital|clinic|doctors|health_post|bank)$"](${bbox});`,
+    `nwr["shop"~"^(supermarket|grocery|bakery)$"](${bbox});`,
+    `nwr["leisure"~"^(park|garden|fitness_centre|sports_centre)$"](${bbox});`,
+  ].join("\n  ");
+  return `[out:json][timeout:60];\n(\n  ${sel}\n);\nout center tags;`;
+}
+
+interface OverpassEl {
+  type: string;
+  id: number;
+  lat?: number; lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+}
+
+/** Uma única chamada ao Overpass devolve a cidade toda (grátis). */
+export async function collectPoisOsm(b: {
+  minLat: number; minLng: number; maxLat: number; maxLng: number;
+}): Promise<{ pois: CollectedPoi[]; requests: number }> {
+  const query = overpassQuery(b);
+  const res = await fetch(OVERPASS, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "data=" + encodeURIComponent(query),
+  });
+  if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+  const data = (await res.json()) as { elements?: OverpassEl[] };
+  const byId = new Map<string, CollectedPoi>();
+  for (const el of data.elements ?? []) {
+    const tags = el.tags ?? {};
+    const category = osmCategory(tags);
+    if (!category) continue;
+    const lat = el.lat ?? el.center?.lat;
+    const lng = el.lon ?? el.center?.lon;
+    if (lat == null || lng == null) continue;
+    const pid = `${el.type[0]}${el.id}`; // n123 / w456
+    if (byId.has(pid)) continue;
+    byId.set(pid, {
+      provider_id: pid,
+      name: tags.name ?? null,
+      category,
+      gtype: tags.amenity ?? tags.shop ?? tags.leisure ?? "",
+      lat, lng,
+      rating: null,
+      ratings_total: null,
+      weight: CAT_WEIGHT[category] ?? 1,
+    });
+  }
+  return { pois: [...byId.values()], requests: 1 };
+}
+
 /** Agrupa coordenadas em células de grade e devolve o centro de cada célula. */
 export function gridCells(
   points: { lat: number; lng: number }[],

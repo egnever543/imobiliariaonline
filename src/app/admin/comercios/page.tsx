@@ -19,12 +19,13 @@ const input: React.CSSProperties = {
 };
 const label: React.CSSProperties = { fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 };
 
-interface Est { imoveis: number; cells: number; requests: number; costUSD: number }
+interface Est { imoveis: number; cells?: number; requests: number; costUSD: number; gratis?: boolean; provider?: string }
 interface Done { imoveis: number; cells: number; requests: number; collected: number; saved: number; estimatedCostUSD: number }
 
 export default function Comercios() {
   const [token, setToken] = useState("");
   const [citySlug, setCitySlug] = useState("itapoa-sc");
+  const [provider, setProvider] = useState<"osm" | "google">("osm");
   const [mode, setMode] = useState<"city" | "listings">("city");
   const [maxCells, setMaxCells] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -41,7 +42,7 @@ export default function Comercios() {
     try {
       const res = await fetch("/api/pois/collect", {
         method: "POST", headers: headers(),
-        body: JSON.stringify({ citySlug, mode, dryRun, maxCells: maxCells || undefined }),
+        body: JSON.stringify({ citySlug, provider, mode, dryRun, maxCells: maxCells || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -71,40 +72,63 @@ export default function Comercios() {
             <label style={label}>Senha do painel (ADMIN_TOKEN)</label>
             <input style={input} type="password" value={token} onChange={(e) => saveToken(e.target.value)} placeholder="a mesma do servidor" />
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 2 }}>
-              <label style={label}>Cidade (slug)</label>
-              <input style={input} value={citySlug} onChange={(e) => setCitySlug(e.target.value)} placeholder="itapoa-sc" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={label}>Máx. de células (0 = todas)</label>
-              <input style={input} type="number" min={0} value={maxCells} onChange={(e) => setMaxCells(Number(e.target.value))} />
-            </div>
-          </div>
           <div>
-            <label style={label}>Cobertura</label>
+            <label style={label}>Cidade (slug)</label>
+            <input style={input} value={citySlug} onChange={(e) => setCitySlug(e.target.value)} placeholder="itapoa-sc" />
+          </div>
+
+          <div>
+            <label style={label}>Fonte dos comércios</label>
             <div style={{ display: "flex", gap: 8 }}>
               {([
-                ["city", "Cidade (redondezas)"],
-                ["listings", "Perto dos imóveis"],
-              ] as const).map(([m, lbl]) => (
-                <button key={m} onClick={() => { setMode(m); setEst(null); }}
+                ["osm", "OpenStreetMap · grátis"],
+                ["google", "Google · pago"],
+              ] as const).map(([p, lbl]) => (
+                <button key={p} onClick={() => { setProvider(p); setEst(null); }}
                   style={{
                     flex: 1, padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    border: `1px solid ${mode === m ? "var(--accent)" : "var(--border)"}`,
-                    background: mode === m ? "var(--accent)" : "var(--paper)",
-                    color: mode === m ? "#fff" : "var(--muted)",
+                    border: `1px solid ${provider === p ? "var(--accent)" : "var(--border)"}`,
+                    background: provider === p ? "var(--accent)" : "var(--paper)",
+                    color: provider === p ? "#fff" : "var(--muted)",
                   }}>
                   {lbl}
                 </button>
               ))}
             </div>
             <p style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 0" }}>
-              {mode === "city"
-                ? "Cobre a região toda (imóveis + margem) — o cliente vê as redondezas. Custa mais; estime antes."
-                : "Só em volta dos imóveis — mais barato, menos cobertura."}
+              {provider === "osm"
+                ? "1 consulta cobre a cidade inteira, sem custo. Traz escola, farmácia, mercado, saúde, banco, praça… (sem nota de avaliação)."
+                : "Mais completo e com nota, mas cobra por requisição e varre a cidade em grade. Use se quiser filtrar por qualidade."}
             </p>
           </div>
+
+          {provider === "google" && (
+            <>
+              <div>
+                <label style={label}>Cobertura</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {([
+                    ["city", "Cidade (redondezas)"],
+                    ["listings", "Perto dos imóveis"],
+                  ] as const).map(([m, lbl]) => (
+                    <button key={m} onClick={() => { setMode(m); setEst(null); }}
+                      style={{
+                        flex: 1, padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                        border: `1px solid ${mode === m ? "var(--accent)" : "var(--border)"}`,
+                        background: mode === m ? "var(--accent)" : "var(--paper)",
+                        color: mode === m ? "#fff" : "var(--muted)",
+                      }}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={label}>Máx. de células (0 = todas)</label>
+                <input style={input} type="number" min={0} value={maxCells} onChange={(e) => setMaxCells(Number(e.target.value))} />
+              </div>
+            </>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-ghost" onClick={() => call(true)} disabled={busy || !token}>
               {busy ? "…" : "1. Estimar (grátis)"}
@@ -121,13 +145,14 @@ export default function Comercios() {
             <div style={{ fontSize: 13, color: "var(--muted)" }}>Estimativa (nada foi gasto)</div>
             <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
               <Stat n={est.imoveis} l="imóveis" />
-              <Stat n={est.cells} l="células" />
+              {est.cells != null && <Stat n={est.cells} l="células" />}
               <Stat n={est.requests} l="requisições" />
-              <Stat n={usd(est.costUSD)} l="custo estimado" hot />
+              <Stat n={est.gratis ? "grátis" : usd(est.costUSD)} l="custo estimado" hot />
             </div>
             <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
-              Se ficar caro, reduza com “máx. de células”. Coleta uma vez por cidade
-              (o resultado fica salvo).
+              {est.gratis
+                ? "OpenStreetMap: 1 consulta cobre a cidade inteira, sem custo. Pode coletar."
+                : "Se ficar caro, reduza com “máx. de células”. Coleta uma vez por cidade (o resultado fica salvo)."}
             </p>
           </div>
         )}
