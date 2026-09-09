@@ -31,7 +31,7 @@ async function handle(req: Request) {
     const limit = Math.min(Number(body.limit) || 2000, 5000);
     const { data: listings, error } = await db
       .from("listings")
-      .select("id,title,type,neighborhood,price")
+      .select("id,title,type,neighborhood,price,source_url")
       .order("first_seen_at", { ascending: false })
       .limit(limit);
     if (error) return Response.json({ error: error.message }, { status: 500 });
@@ -54,6 +54,7 @@ async function handle(req: Request) {
       const rev = last.get(l.id as string);
       return {
         id: l.id, title: l.title, type: l.type, neighborhood: l.neighborhood, price: l.price,
+        source_url: l.source_url,
         reviewed: !!rev,
         lastChanges: rev?.changes ?? 0,
         applied: rev?.applied ?? false,
