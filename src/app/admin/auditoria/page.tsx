@@ -20,7 +20,8 @@ const input: React.CSSProperties = {
 interface Change { from: unknown; to: unknown }
 interface Item {
   id: string; title: string | null; type: string | null; neighborhood: string | null;
-  price: number | null; reviewed: boolean; lastChanges: number; applied: boolean;
+  price: number | null; source_url?: string | null;
+  reviewed: boolean; lastChanges: number; applied: boolean;
   // estado local durante a auditoria
   busy?: boolean; changes?: Record<string, Change>; error?: string;
 }
@@ -212,8 +213,15 @@ export default function Auditoria() {
                     <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {x.title ?? x.type ?? "Imóvel"}
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                      {[x.type, x.neighborhood, money(x.price)].filter(Boolean).join(" · ")}
+                    <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <span>{[x.type, x.neighborhood, money(x.price)].filter(Boolean).join(" · ")}</span>
+                      {x.source_url && (
+                        <a href={x.source_url} target="_blank" rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ fontSize: 11.5, fontWeight: 600 }}>
+                          ver anúncio ↗
+                        </a>
+                      )}
                     </div>
                     {/* correções da última auditoria (sessão atual) */}
                     {x.changes && Object.keys(x.changes).length > 0 && (
