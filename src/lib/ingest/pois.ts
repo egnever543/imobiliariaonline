@@ -43,6 +43,138 @@ const RADIUS_M = 750;      // raio da busca por célula
 const MIN_RATING = 3.8;    // nota mínima p/ categorias "requireGood"
 const MIN_VOTES = 5;
 
+// peso por categoria (compartilhado por Google e OSM)
+export const CAT_WEIGHT: Record<string, number> = {
+  escola: 3, farmacia: 3, supermercado: 3, hospital: 2.5,
+  saude: 2, padaria: 1.5, banco: 1.2, praca: 1.2, academia: 1.2,
+};
+
+// ── OpenStreetMap / Overpass (grátis, cidade inteira em 1 consulta) ────
+// Vários espelhos: se um estiver lento/fora, tenta o próximo (kumi costuma
+// ser o mais rápido, então vem primeiro).
+const OVERPASS_MIRRORS = [
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+
+/**
+ * Caixa robusta: usa percentis (2%–98%) em vez de min/max, para ignorar
+ * imóveis com coordenada errada (outliers) que inflariam a bbox e fariam o
+ * Overpass varrer meio país. Cai no min/max se houver poucos pontos.
+ */
+export function boundsRobust(
+  points: { lat: number; lng: number }[],
+  marginDeg = 0.03,
+): { minLat: number; maxLat: number; minLng: number; maxLng: number } | null {
+  const lats = points.map((p) => p.lat).filter((v) => v != null).sort((a, b) => a - b);
+  const lngs = points.map((p) => p.lng).filter((v) => v != null).sort((a, b) => a - b);
+  if (!lats.length) return null;
+  const at = (arr: number[], p: number) =>
+    arr[Math.min(arr.length - 1, Math.max(0, Math.round((arr.length - 1) * p)))];
+  const lo = lats.length >= 20 ? 0.02 : 0;
+  const hi = lats.length >= 20 ? 0.98 : 1;
+  return {
+    minLat: at(lats, lo) - marginDeg, maxLat: at(lats, hi) + marginDeg,
+    minLng: at(lngs, lo) - marginDeg, maxLng: at(lngs, hi) + marginDeg,
+  };
+}
+
+// tag OSM (chave=valor) → categoria normalizada
+function osmCategory(tags: Record<string, string>): string | null {
+  const a = tags.amenity, s = tags.shop, l = tags.leisure;
+  if (a === "school" || a === "kindergarten" || a === "college" || a === "university") return "escola";
+  if (a === "pharmacy") return "farmacia";
+  if (a === "hospital") return "hospital";
+  if (a === "clinic" || a === "doctors" || a === "health_post") return "saude";
+  if (a === "bank") return "banco";
+  if (s === "supermarket" || s === "grocery") return "supermercado";
+  if (s === "bakery") return "padaria";
+  if (l === "park" || l === "garden") return "praca";
+  if (l === "fitness_centre" || l === "sports_centre" || a === "gym") return "academia";
+  return null;
+}
+
+/** Monta a consulta Overpass que traz todos os comércios bons da bbox. */
+export function overpassQuery(b: {
+  minLat: number; minLng: number; maxLat: number; maxLng: number;
+}): string {
+  const bbox = `${b.minLat},${b.minLng},${b.maxLat},${b.maxLng}`;
+  // node+way (sem relations — mais leve/rápido); relations quase não agregam POIs.
+  const sel = [
+    `nw["amenity"~"^(school|kindergarten|college|university|pharmacy|hospital|clinic|doctors|health_post|bank)$"](${bbox});`,
+    `nw["shop"~"^(supermarket|grocery|bakery)$"](${bbox});`,
+    `nw["leisure"~"^(park|garden|fitness_centre|sports_centre)$"](${bbox});`,
+  ].join("\n  ");
+  return `[out:json][timeout:25];\n(\n  ${sel}\n);\nout center tags;`;
+}
+
+interface OverpassEl {
+  type: string;
+  id: number;
+  lat?: number; lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+}
+
+async function overpassFetch(query: string, timeoutMs = 18_000): Promise<{ elements?: OverpassEl[] }> {
+  let lastErr = "";
+  for (const url of OVERPASS_MIRRORS) {
+    try {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), timeoutMs);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+        signal: c.signal,
+      });
+      clearTimeout(t);
+      const text = await res.text();
+      if (!res.ok) { lastErr = `HTTP ${res.status} em ${new URL(url).host}`; continue; }
+      try {
+        return JSON.parse(text) as { elements?: OverpassEl[] };
+      } catch {
+        lastErr = `resposta não-JSON de ${new URL(url).host}`;
+        continue;
+      }
+    } catch (e) {
+      lastErr = (e as Error).name === "AbortError" ? "tempo esgotado (Overpass lento)" : (e as Error).message;
+    }
+  }
+  throw new Error("Overpass indisponível: " + lastErr);
+}
+
+/** Uma única chamada ao Overpass devolve a cidade toda (grátis). */
+export async function collectPoisOsm(b: {
+  minLat: number; minLng: number; maxLat: number; maxLng: number;
+}): Promise<{ pois: CollectedPoi[]; requests: number }> {
+  const query = overpassQuery(b);
+  const data = await overpassFetch(query);
+  const byId = new Map<string, CollectedPoi>();
+  for (const el of data.elements ?? []) {
+    const tags = el.tags ?? {};
+    const category = osmCategory(tags);
+    if (!category) continue;
+    const lat = el.lat ?? el.center?.lat;
+    const lng = el.lon ?? el.center?.lon;
+    if (lat == null || lng == null) continue;
+    const pid = `${el.type[0]}${el.id}`; // n123 / w456
+    if (byId.has(pid)) continue;
+    byId.set(pid, {
+      provider_id: pid,
+      name: tags.name ?? null,
+      category,
+      gtype: tags.amenity ?? tags.shop ?? tags.leisure ?? "",
+      lat, lng,
+      rating: null,
+      ratings_total: null,
+      weight: CAT_WEIGHT[category] ?? 1,
+    });
+  }
+  return { pois: [...byId.values()], requests: 1 };
+}
+
 /** Agrupa coordenadas em células de grade e devolve o centro de cada célula. */
 export function gridCells(
   points: { lat: number; lng: number }[],

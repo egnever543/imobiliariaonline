@@ -6,12 +6,21 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
-import { collectPois, estimate, gridCells, boundsOf, bboxCells } from "@/lib/ingest/pois";
+import { collectPois, collectPoisOsm, estimate, gridCells, boundsOf, boundsRobust, bboxCells } from "@/lib/ingest/pois";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // sempre devolve JSON (evita "Unexpected end of JSON input" no cliente)
+    return Response.json({ error: (e as Error).message || "Falha na coleta." }, { status: 500 });
+  }
+}
+
+async function handle(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
   const body = await req.json().catch(() => null);
@@ -53,7 +62,32 @@ export async function POST(req: Request) {
     );
   }
 
-  // modo de cobertura:
+  const provider = body.provider === "google" ? "google" : "osm";
+
+  // ── OpenStreetMap: 1 chamada cobre a cidade toda, de graça ──
+  if (provider === "osm") {
+    const margin = typeof body.marginKm === "number" ? body.marginKm * 0.009 : 0.03;
+    // bbox robusta: ignora imóveis com coordenada errada (senão a área explode
+    // e o Overpass estoura o tempo).
+    const b = boundsRobust(points, margin);
+    if (!b) return Response.json({ error: "Sem bbox." }, { status: 400 });
+    if (body.dryRun) {
+      return Response.json({ dryRun: true, provider: "osm", imoveis: points.length, requests: 1, costUSD: 0, gratis: true });
+    }
+    const { pois, requests } = await collectPoisOsm(b);
+    let saved = 0;
+    if (pois.length) {
+      const payload = pois.map((p) => ({ ...p, city_id: cityId, provider: "osm" }));
+      const { error: upErr, count } = await db
+        .from("pois")
+        .upsert(payload, { onConflict: "provider,provider_id", count: "exact" });
+      if (upErr) return Response.json({ error: upErr.message, collected: pois.length }, { status: 500 });
+      saved = count ?? pois.length;
+    }
+    return Response.json({ ok: true, provider: "osm", imoveis: points.length, requests, collected: pois.length, saved, estimatedCostUSD: 0 });
+  }
+
+  // modo de cobertura (Google):
   //  - "city"     → grade sobre a região toda (imóveis + margem)
   //  - "listings" → só em volta dos imóveis (mais barato)
   const mode = body.mode === "listings" ? "listings" : "city";
