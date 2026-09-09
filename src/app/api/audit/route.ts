@@ -26,16 +26,41 @@ async function handle(req: Request) {
   const body = await req.json().catch(() => null);
   const db = getServiceClient();
 
-  // 1) listar imóveis a auditar (grátis)
+  // 1) listar imóveis + status de revisão (grátis)
   if (body?.list) {
-    const limit = Math.min(Number(body.limit) || 50, 300);
-    const { data, error } = await db
+    const limit = Math.min(Number(body.limit) || 2000, 5000);
+    const { data: listings, error } = await db
       .from("listings")
-      .select("id,title,type")
+      .select("id,title,type,neighborhood,price")
       .order("first_seen_at", { ascending: false })
       .limit(limit);
     if (error) return Response.json({ error: error.message }, { status: 500 });
-    return Response.json({ listings: data ?? [] });
+
+    // auditorias existentes → última por imóvel
+    const { data: audits } = await db
+      .from("data_audits")
+      .select("listing_id,applied,changes,created_at")
+      .order("created_at", { ascending: false })
+      .limit(20000);
+    const last = new Map<string, { applied: boolean; changes: number; at: string }>();
+    for (const a of audits ?? []) {
+      const lid = a.listing_id as string;
+      if (last.has(lid)) continue; // já é a mais recente (ordenado desc)
+      const changes = (a.changes as Record<string, unknown>) ?? {};
+      last.set(lid, { applied: !!a.applied, changes: Object.keys(changes).length, at: a.created_at as string });
+    }
+
+    const out = (listings ?? []).map((l) => {
+      const rev = last.get(l.id as string);
+      return {
+        id: l.id, title: l.title, type: l.type, neighborhood: l.neighborhood, price: l.price,
+        reviewed: !!rev,
+        lastChanges: rev?.changes ?? 0,
+        applied: rev?.applied ?? false,
+      };
+    });
+    const reviewed = out.filter((l) => l.reviewed).length;
+    return Response.json({ listings: out, total: out.length, reviewed, pending: out.length - reviewed });
   }
 
   if (!body?.listingId) {
