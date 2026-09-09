@@ -182,7 +182,8 @@ export default function Admin() {
           Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo
           o custo ao vivo.{" "}
           <a href="/admin/coletar-cidade">Coletar cidade inteira →</a>{" "}
-          · <a href="/admin/comercios">Comércios / mapa de calor →</a>
+          · <a href="/admin/comercios">Comércios / mapa de calor →</a>{" "}
+          · <a href="/admin/auditoria">Auditoria por IA →</a>
         </p>
 
       {/* Senha */}
