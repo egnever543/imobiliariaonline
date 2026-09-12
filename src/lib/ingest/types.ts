@@ -24,6 +24,7 @@ export interface ExtractedListing {
   built_area_m2: number | null; // área construída
   condo_fee: number | null; // condomínio mensal
   is_launch: boolean | null; // lançamento / na planta
+  image_url: string | null; // foto principal (og:image)
 }
 
 /** Registro canônico, pronto para gravar na tabela `listings`. */

@@ -90,6 +90,7 @@ const EMPTY: ExtractedListing = {
   built_area_m2: null,
   condo_fee: null,
   is_launch: null,
+  image_url: null,
 };
 
 export interface ExtractResult {
