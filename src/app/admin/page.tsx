@@ -1,371 +1,216 @@
-"use client";
+// ── Painel de administração (hub) ─────────────────────────────────────
+// Dashboard analítico: indicadores, pendências/sugestões e atalhos para todas
+// as ferramentas, cada uma com um (i) explicando o que faz.
+// Server Component: lê os números do banco (tolerante a tabelas ausentes).
 
-// ── Painel de gestão de coletas ───────────────────────────────────────
-// Dispara coletas por clique, um anúncio por vez, com progresso e custo ao
-// vivo. Protegido por senha (ADMIN_TOKEN no servidor).
-
-import { useEffect, useRef, useState } from "react";
+import { getServiceClient } from "@/lib/supabase/server";
 import Nav from "@/components/Nav";
 
-interface DiscoverResp {
-  cityId: string;
-  agencyId: string | null;
-  total: number;
-  links: string[];
+export const dynamic = "force-dynamic";
+
+interface Metrics {
+  configured: boolean;
+  cities: number;
+  agencies: number;
+  listings: number;
+  geoOk: number;
+  noGeo: number;
+  noPrice: number;
+  pois: number;
+  audited: number;
+  spendTotal: number;
+  spendToday: number;
 }
-interface CollectResp {
-  url: string;
-  saved: boolean;
-  error?: string;
-  estimatedCostUSD: number;
+
+async function count(
+  db: ReturnType<typeof getServiceClient>,
+  table: string,
+  build?: (q: ReturnType<ReturnType<typeof getServiceClient>["from"]>["select"]) => unknown,
+): Promise<number> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = db.from(table).select("id", { count: "exact", head: true });
+    if (build) q = build(q);
+    const { count } = await q;
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
-const box: React.CSSProperties = {
-  background: "var(--paper)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  padding: 20,
-  boxShadow: "var(--shadow-sm)",
-};
-const input: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 11px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  background: "var(--paper)",
-  color: "var(--ink)",
-  fontSize: 14,
-};
-const label: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--muted)",
-  display: "block",
-  marginBottom: 4,
-};
-const btn: React.CSSProperties = {
-  padding: "10px 16px",
-  borderRadius: "var(--radius-sm)",
-  border: "none",
-  background: "var(--accent)",
-  color: "#fff",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-  boxShadow: "var(--shadow-sm)",
-};
-
-export default function Admin() {
-  const [token, setToken] = useState("");
-  const [listingUrl, setListingUrl] = useState("");
-  const [citySlug, setCitySlug] = useState("itapoa-sc");
-  const [cityName, setCityName] = useState("Itapoá");
-  const [uf, setUf] = useState("SC");
-  const [agencyName, setAgencyName] = useState("");
-  const [keywords, setKeywords] = useState("terreno");
-  const [model, setModel] = useState("claude-haiku-4-5");
-  const [maxItems, setMaxItems] = useState(3);
-
-  const [discovering, setDiscovering] = useState(false);
-  const [disc, setDisc] = useState<DiscoverResp | null>(null);
-  const [collecting, setCollecting] = useState(false);
-  const [done, setDone] = useState(0);
-  const [saved, setSaved] = useState(0);
-  const [cost, setCost] = useState(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [msg, setMsg] = useState("");
-  const abort = useRef(false);
-
-  useEffect(() => {
-    setToken(localStorage.getItem("admin_token") ?? "");
-  }, []);
-  function saveToken(v: string) {
-    setToken(v);
-    localStorage.setItem("admin_token", v);
+async function load(): Promise<Metrics> {
+  let db: ReturnType<typeof getServiceClient>;
+  try {
+    db = getServiceClient();
+  } catch {
+    return {
+      configured: false, cities: 0, agencies: 0, listings: 0, geoOk: 0,
+      noGeo: 0, noPrice: 0, pois: 0, audited: 0, spendTotal: 0, spendToday: 0,
+    };
   }
 
-  function headers() {
-    return { "content-type": "application/json", "x-admin-token": token };
-  }
-  const log = (s: string) => setLogs((l) => [s, ...l].slice(0, 50));
+  const [cities, agencies, listings, geoOk, noPrice, pois] = await Promise.all([
+    count(db, "cities"),
+    count(db, "agencies"),
+    count(db, "listings"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    count(db, "listings", (q: any) => q.not("lat", "is", null)),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    count(db, "listings", (q: any) => q.is("price", null)),
+    count(db, "pois"),
+  ]);
 
-  async function doDiscover() {
-    setMsg("");
-    setDisc(null);
-    setDone(0);
-    setSaved(0);
-    setCost(0);
-    setLogs([]);
-    setDiscovering(true);
-    try {
-      const kw = keywords.split(",").map((s) => s.trim()).filter(Boolean);
-      const res = await fetch("/api/discover", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          listingUrl,
-          citySlug,
-          cityName,
-          uf,
-          agencyName,
-          keywords: kw,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setDisc(data);
-      setMaxItems(Math.min(3, data.total || 0));
-      setMsg(`Encontrados ${data.total} anúncios. Nenhum custo até aqui.`);
-    } catch (e) {
-      setMsg("Erro: " + (e as Error).message);
-    } finally {
-      setDiscovering(false);
-    }
+  // imóveis já auditados (distintos)
+  let audited = 0;
+  try {
+    const { data } = await db.from("data_audits").select("listing_id").limit(50000);
+    audited = new Set((data ?? []).map((r) => r.listing_id as string)).size;
+  } catch {
+    audited = 0;
   }
 
-  async function doCollect() {
-    if (!disc) return;
-    abort.current = false;
-    setCollecting(true);
-    setDone(0);
-    setSaved(0);
-    setCost(0);
-    setLogs([]);
-    const links = disc.links.slice(0, maxItems);
-    for (const url of links) {
-      if (abort.current) {
-        log("⏹ Interrompido.");
-        break;
-      }
-      try {
-        const res = await fetch("/api/collect", {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({
-            url,
-            cityId: disc.cityId,
-            agencyId: disc.agencyId,
-            listingUrl,
-            model,
-            cityName,
-            uf,
-          }),
-        });
-        const data: CollectResp = await res.json();
-        setDone((n) => n + 1);
-        setCost((c) => c + (data.estimatedCostUSD || 0));
-        if (data.saved) {
-          setSaved((n) => n + 1);
-          log(`✅ ${short(url)}`);
-        } else {
-          log(`⚠️ ${short(url)} — ${data.error ?? "falhou"}`);
-        }
-      } catch (e) {
-        setDone((n) => n + 1);
-        log(`❌ ${short(url)} — ${(e as Error).message}`);
-      }
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    setCollecting(false);
+  // gasto com IA
+  let spendTotal = 0, spendToday = 0;
+  try {
+    const { data } = await db.from("spend_summary").select("*").single();
+    spendTotal = Number((data as { total_usd?: number })?.total_usd ?? 0);
+    spendToday = Number((data as { today_usd?: number })?.today_usd ?? 0);
+  } catch {
+    /* view ausente */
   }
 
-  const short = (u: string) => (u.length > 48 ? u.slice(0, 48) + "…" : u);
-  const total = disc?.total ?? 0;
-  const pct = maxItems ? Math.round((done / maxItems) * 100) : 0;
+  return {
+    configured: true, cities, agencies, listings, geoOk,
+    noGeo: Math.max(0, listings - geoOk), noPrice, pois, audited, spendTotal, spendToday,
+  };
+}
+
+const usd = (v: number) => "US$ " + (v < 1 ? v.toFixed(4) : v.toFixed(2));
+const n = (v: number) => v.toLocaleString("pt-BR");
+
+interface Tool {
+  href: string; icon: string; name: string; desc: string; info: string;
+}
+const TOOLS: Tool[] = [
+  { href: "/mapa", icon: "🗺️", name: "Mapa", desc: "Explorar imóveis, filtrar e ranquear",
+    info: "Mapa interativo com busca por tipo, quartos, preço e bairro. Liga o ranking inteligente (proximidade de praia, comércios, R$/m²) e o mapa de calor de comércios. É a tela do corretor." },
+  { href: "/admin/coletar", icon: "📥", name: "Coletar imóveis", desc: "Puxar anúncios de uma imobiliária",
+    info: "Informe o site de uma imobiliária: o sistema busca os anúncios (grátis) e coleta quantos você escolher, mostrando o custo da IA ao vivo. Use para adicionar uma imobiliária específica." },
+  { href: "/admin/coletar-cidade", icon: "🏙️", name: "Coletar cidade", desc: "Varrer a cidade inteira de uma vez",
+    info: "Roda a coleta em todas as imobiliárias já descobertas na cidade, em sequência. Ideal para popular a base de uma cidade nova." },
+  { href: "/admin/descobrir", icon: "🔎", name: "Descobrir imobiliárias", desc: "Achar imobiliárias via Google",
+    info: "Usa o Google Places para listar as imobiliárias de uma cidade e o site de cada uma, salvando-as para depois coletar. Primeiro passo ao abrir uma cidade nova." },
+  { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Geocodificar imóveis sem coordenada",
+    info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto manualmente." },
+  { href: "/admin/comercios", icon: "🔥", name: "Comércios / mapa de calor", desc: "Coletar escola, farmácia, mercado…",
+    info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
+  { href: "/admin/auditoria", icon: "✅", name: "Auditoria por IA", desc: "Conferir e corrigir os dados",
+    info: "A IA lê cada anúncio, compara com os dados salvos e corrige o que estiver errado (preço, área, tipo, quartos…). Revise um a um ou em lote; dá para só sugerir antes de aplicar." },
+];
+
+function InfoDot({ text }: { text: string }) {
+  return (
+    <span title={text} aria-label={text} style={{
+      display: "inline-grid", placeItems: "center", width: 16, height: 16, flexShrink: 0,
+      borderRadius: 99, border: "1px solid var(--border)", color: "var(--muted)",
+      fontSize: 10.5, fontWeight: 700, cursor: "help", fontStyle: "italic",
+    }}>i</span>
+  );
+}
+
+export default async function AdminHub() {
+  const m = await load();
+
+  // pendências (só aparecem quando existem de fato)
+  const pend: { label: string; href: string; cta: string; tone: "warn" | "accent" }[] = [];
+  if (!m.configured) {
+    pend.push({ label: "Supabase não configurado — preencha as chaves no servidor.", href: "/admin", cta: "—", tone: "warn" });
+  } else {
+    if (m.listings === 0) pend.push({ label: "Nenhum imóvel coletado ainda.", href: "/admin/coletar", cta: "Coletar", tone: "accent" });
+    if (m.noGeo > 0) pend.push({ label: `${n(m.noGeo)} imóveis sem localização no mapa.`, href: "/admin/geo", cta: "Corrigir", tone: "warn" });
+    if (m.listings > 0 && m.audited < m.listings) pend.push({ label: `${n(m.listings - m.audited)} imóveis ainda não revisados pela IA.`, href: "/admin/auditoria", cta: "Auditar", tone: "accent" });
+    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis sem preço.`, href: "/admin/auditoria", cta: "Revisar", tone: "warn" });
+    if (m.listings > 0 && m.pois === 0) pend.push({ label: "Comércios ainda não coletados (mapa de calor vazio).", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
+  }
+
+  const kpis: { label: string; value: string; sub?: string }[] = [
+    { label: "Imóveis", value: n(m.listings) },
+    { label: "Imobiliárias", value: n(m.agencies) },
+    { label: "Cidades", value: n(m.cities) },
+    { label: "Com localização", value: n(m.geoOk), sub: m.listings ? Math.round((m.geoOk / m.listings) * 100) + "%" : undefined },
+    { label: "Revisados (IA)", value: n(m.audited), sub: m.listings ? Math.round((m.audited / m.listings) * 100) + "%" : undefined },
+    { label: "Comércios", value: n(m.pois) },
+    { label: "Gasto IA (total)", value: usd(m.spendTotal) },
+    { label: "Gasto IA (hoje)", value: usd(m.spendToday) },
+  ];
 
   return (
     <>
       <Nav />
-      <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 24px 96px" }}>
+      <main style={{ maxWidth: 1000, margin: "0 auto", padding: "36px 24px 96px" }}>
         <span className="chip">Painel</span>
-        <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Coletar imóveis</h1>
+        <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Central de gestão</h1>
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
-          Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo
-          o custo ao vivo.{" "}
-          <a href="/admin/coletar-cidade">Coletar cidade inteira →</a>{" "}
-          · <a href="/admin/comercios">Comércios / mapa de calor →</a>{" "}
-          · <a href="/admin/auditoria">Auditoria por IA →</a>
+          Visão geral da base, pendências e todas as ferramentas num só lugar.
         </p>
 
-      {/* Senha */}
-      <div style={{ ...box, marginTop: 20 }}>
-        <label style={label}>Senha do painel (ADMIN_TOKEN)</label>
-        <input
-          style={input}
-          type="password"
-          value={token}
-          onChange={(e) => saveToken(e.target.value)}
-          placeholder="a mesma definida no servidor"
-        />
-      </div>
-
-      {/* Formulário */}
-      <div style={{ ...box, marginTop: 16, display: "grid", gap: 12 }}>
-        <div>
-          <label style={label}>URL da página de terrenos/imóveis</label>
-          <input
-            style={input}
-            value={listingUrl}
-            onChange={(e) => setListingUrl(e.target.value)}
-            placeholder="https://imobiliaria.com.br/terrenos"
-          />
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 2 }}>
-            <label style={label}>Imobiliária</label>
-            <input
-              style={input}
-              value={agencyName}
-              onChange={(e) => setAgencyName(e.target.value)}
-              placeholder="Nome da imobiliária"
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Palavras no link</label>
-            <input
-              style={input}
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="terreno,imovel"
-            />
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Cidade (slug)</label>
-            <input
-              style={input}
-              value={citySlug}
-              onChange={(e) => setCitySlug(e.target.value)}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Cidade (nome)</label>
-            <input
-              style={input}
-              value={cityName}
-              onChange={(e) => setCityName(e.target.value)}
-            />
-          </div>
-          <div style={{ width: 70 }}>
-            <label style={label}>UF</label>
-            <input
-              style={input}
-              value={uf}
-              onChange={(e) => setUf(e.target.value)}
-            />
-          </div>
-        </div>
-        <button
-          style={{ ...btn, opacity: discovering || !listingUrl ? 0.6 : 1 }}
-          onClick={doDiscover}
-          disabled={discovering || !listingUrl}
-        >
-          {discovering ? "Buscando…" : "1. Buscar anúncios (grátis)"}
-        </button>
-      </div>
-
-      {msg && (
-        <p style={{ marginTop: 12, fontSize: 14, color: "var(--muted)" }}>{msg}</p>
-      )}
-
-      {/* Coleta */}
-      {disc && total > 0 && (
-        <div style={{ ...box, marginTop: 16, display: "grid", gap: 12 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <label style={label}>Quantos coletar (de {total})</label>
-              <input
-                style={input}
-                type="number"
-                min={1}
-                max={total}
-                value={maxItems}
-                onChange={(e) => setMaxItems(Number(e.target.value))}
-              />
+        {/* KPIs */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginTop: 20 }}>
+          {kpis.map((k) => (
+            <div key={k.label} className="card" style={{ padding: 16 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{k.value}</div>
+                {k.sub && <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>{k.sub}</div>}
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{k.label}</div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={label}>Modelo da IA</label>
-              <select
-                style={input}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                <option value="claude-haiku-4-5">Haiku (mais barato)</option>
-                <option value="claude-sonnet-5">Sonnet (meio-termo)</option>
-                <option value="claude-opus-5">Opus (máxima qualidade)</option>
-              </select>
+          ))}
+        </div>
+
+        {/* Pendências e sugestões */}
+        <section style={{ marginTop: 28 }}>
+          <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>
+            Pendências e sugestões {pend.length > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--warn)", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>{pend.length}</span>
+            )}
+          </h2>
+          {pend.length === 0 ? (
+            <div className="card" style={{ padding: 16, color: "var(--muted)", fontSize: 14 }}>
+              ✅ Tudo em dia — nenhuma pendência detectada.
             </div>
-          </div>
-          {!collecting ? (
-            <button style={btn} onClick={doCollect}>
-              2. Coletar {maxItems} anúncio{maxItems > 1 ? "s" : ""}
-            </button>
           ) : (
-            <button
-              style={{ ...btn, background: "var(--warn)" }}
-              onClick={() => (abort.current = true)}
-            >
-              ⏹ Parar
-            </button>
-          )}
-
-          {/* Progresso */}
-          {(collecting || done > 0) && (
-            <div>
-              <div
-                style={{
-                  height: 8,
-                  background: "var(--border)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${pct}%`,
-                    height: "100%",
-                    background: "var(--accent)",
-                    transition: "width .2s",
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginTop: 8,
-                  fontSize: 13,
-                }}
-              >
-                <span>
-                  {done}/{maxItems} · {saved} salvos
-                </span>
-                <span style={{ fontWeight: 600 }}>
-                  custo: US$ {cost.toFixed(4)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {logs.length > 0 && (
-            <div
-              style={{
-                fontFamily: "ui-monospace, monospace",
-                fontSize: 12,
-                color: "var(--muted)",
-                maxHeight: 180,
-                overflow: "auto",
-                borderTop: "1px solid var(--border)",
-                paddingTop: 8,
-              }}
-            >
-              {logs.map((l, i) => (
-                <div key={i}>{l}</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {pend.map((p, i) => (
+                <div key={i} className="card" style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: p.tone === "warn" ? "var(--warn)" : "var(--accent)", flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontSize: 14 }}>{p.label}</span>
+                  {p.cta !== "—" && <a href={p.href} className="btn" style={{ padding: "6px 14px", fontSize: 13 }}>{p.cta} →</a>}
+                </div>
               ))}
             </div>
           )}
+        </section>
+
+        {/* Ferramentas */}
+        <section style={{ marginTop: 28 }}>
+          <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Ferramentas</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            {TOOLS.map((t) => (
+              <a key={t.href} href={t.href} className="card"
+                style={{ padding: 16, textDecoration: "none", color: "var(--ink)", display: "block" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>{t.icon}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{t.name}</span>
+                  <InfoDot text={t.info} />
+                </div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{t.desc}</div>
+              </a>
+            ))}
           </div>
-        )}
+          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+            Passe o mouse no <span style={{ fontStyle: "italic" }}>(i)</span> de cada ferramenta para ver o que ela faz.
+          </p>
+        </section>
       </main>
     </>
   );
