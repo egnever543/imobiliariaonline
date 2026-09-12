@@ -12,6 +12,7 @@ export const EMPTY: ExtractedListing = {
   accepts_permuta: null, description: null, external_code: null,
   bedrooms: null, bathrooms: null, suites: null, parking: null,
   built_area_m2: null, condo_fee: null, is_launch: null,
+  image_url: null,
 };
 
 /** Preenche em `base` os campos ainda nulos com os de `src`. */
@@ -65,6 +66,7 @@ function fromMeta(html: string): Partial<ExtractedListing> {
     price,
     bedrooms: toNum(meta(html, "numberOfBedrooms") ?? meta(html, "numberOfRooms")),
     bathrooms: toNum(meta(html, "numberOfBathroomsTotal")),
+    image_url: meta(html, "og:image") ?? meta(html, "og:image:secure_url"),
   };
 }
 

@@ -144,6 +144,7 @@ export function extractJsonLd(html: string): ExtractedListing | null {
     built_area_m2: null,
     condo_fee: null,
     is_launch: null,
+    image_url: null,
   };
 }
 

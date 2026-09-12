@@ -5,10 +5,9 @@
 import Link from "next/link";
 
 const links = [
+  { href: "/imoveis", label: "Imóveis" },
   { href: "/mapa", label: "Mapa" },
-  { href: "/admin", label: "Coletar" },
-  { href: "/admin/descobrir", label: "Descobrir" },
-  { href: "/admin/geo", label: "Localização" },
+  { href: "/admin", label: "Painel" },
 ];
 
 export function Brand({ size = 20 }: { size?: number }) {

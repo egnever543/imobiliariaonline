@@ -92,6 +92,10 @@ interface Tool {
   href: string; icon: string; name: string; desc: string; info: string;
 }
 const TOOLS: Tool[] = [
+  { href: "/imoveis", icon: "🏠", name: "Imóveis (vitrine)", desc: "Ver todos com foto e o que falta",
+    info: "Grade estilo portal com foto de cada imóvel, atributos e selos do que está faltando (sem foto, sem preço, sem área, sem localização). Melhor que o mapa para revisar a completude dos dados." },
+  { href: "/admin/atualizar", icon: "🔄", name: "Atualizar imóveis", desc: "Revisitar anúncios (preço, foto, status)",
+    info: "Revisita os anúncios já coletados (grátis, sem IA): traz preço novo, completa dados que faltavam (incluindo a foto) e marca como indisponível o que saiu do ar. Rode de tempos em tempos." },
   { href: "/mapa", icon: "🗺️", name: "Mapa", desc: "Explorar imóveis, filtrar e ranquear",
     info: "Mapa interativo com busca por tipo, quartos, preço e bairro. Liga o ranking inteligente (proximidade de praia, comércios, R$/m²) e o mapa de calor de comércios. É a tela do corretor." },
   { href: "/admin/coletar", icon: "📥", name: "Coletar imóveis", desc: "Puxar anúncios de uma imobiliária",
