@@ -68,6 +68,23 @@ async function handle(req: Request) {
     return Response.json({ error: "Informe listingId (ou list: true)." }, { status: 400 });
   }
 
+  // 1b) aplicar sugestões já calculadas (sem nova chamada de IA)
+  if (body?.applyChanges) {
+    const changes = (body.applyChanges as Record<string, { from: unknown; to: unknown }>) ?? {};
+    const allowed = new Set<string>(AUDIT_FIELDS);
+    const patch: Record<string, unknown> = {};
+    for (const [f, c] of Object.entries(changes)) if (allowed.has(f)) patch[f] = c.to;
+    if (!Object.keys(patch).length) {
+      return Response.json({ ok: true, applied: false, id: body.listingId });
+    }
+    const { error: upErr } = await db.from("listings").update(patch).eq("id", body.listingId);
+    if (upErr) return Response.json({ error: upErr.message, id: body.listingId }, { status: 500 });
+    db.from("data_audits")
+      .insert({ listing_id: body.listingId, verdicts: [], changes, applied: true, model: "manual", input_tokens: 0, output_tokens: 0, cost_usd: 0 })
+      .then(() => {}, () => {});
+    return Response.json({ ok: true, applied: true, id: body.listingId });
+  }
+
   // modelo só para esta chamada, se pedido
   if (body.model) process.env.AUDIT_MODEL = body.model;
   const minConf = typeof body.minConfidence === "number" ? body.minConfidence : 0.75;
