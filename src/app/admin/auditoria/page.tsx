@@ -88,6 +88,18 @@ export default function Auditoria() {
     }
   }
 
+  // aplica as sugestões já calculadas de 1 imóvel (sem nova chamada de IA)
+  async function applyOne(it: Item) {
+    if (!it.changes || Object.keys(it.changes).length === 0) return;
+    setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: true } : x)));
+    try {
+      await post({ listingId: it.id, applyChanges: it.changes });
+      setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: false, applied: true } : x)));
+    } catch (e) {
+      setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: false, error: (e as Error).message } : x)));
+    }
+  }
+
   // lote: audita os pendentes (do filtro atual)
   async function runBatch() {
     const targets = shown.filter((x) => !x.reviewed);
@@ -248,6 +260,13 @@ export default function Auditoria() {
                     <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
                       {x.lastChanges > 0 ? `${x.lastChanges} ${x.applied ? "corrig." : "sugest."}` : "ok"}
                     </span>
+                  )}
+                  {/* aplicar sugestões (sem gastar IA) */}
+                  {x.changes && Object.keys(x.changes).length > 0 && !x.applied && !x.busy && (
+                    <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
+                      onClick={() => applyOne(x)} disabled={batch}>
+                      Aplicar
+                    </button>
                   )}
                   {/* ação */}
                   <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
