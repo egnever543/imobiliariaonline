@@ -312,13 +312,24 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
     return () => { cancelled = true; };
   }, [heatOn, pois, mapReady]);
 
+  // imóvel vindo por URL (?imovel=<id>) — abre já selecionado (p/ comparar
+  // com o anúncio a partir da auditoria).
+  useEffect(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get("imovel");
+      if (id) setSelected(id);
+    } catch {
+      /* ignora */
+    }
+  }, []);
+
   // voa até o selecionado
   useEffect(() => {
     const map = mapRef.current;
     const d = selectedListing;
     if (!map || !d || d.lat == null || d.lng == null) return;
     map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 15), { duration: 0.6 });
-  }, [selectedListing]);
+  }, [selectedListing, mapReady]);
 
   function applyProfile(id: string) {
     const p = SCORE_PROFILES.find((x) => x.id === id);

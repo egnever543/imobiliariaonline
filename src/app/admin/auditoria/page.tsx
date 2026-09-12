@@ -222,6 +222,11 @@ export default function Auditoria() {
                           ver anúncio ↗
                         </a>
                       )}
+                      <a href={`/mapa?imovel=${x.id}`} target="_blank" rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ fontSize: 11.5, fontWeight: 600 }}>
+                        ver no mapa ↗
+                      </a>
                     </div>
                     {/* correções da última auditoria (sessão atual) */}
                     {x.changes && Object.keys(x.changes).length > 0 && (
