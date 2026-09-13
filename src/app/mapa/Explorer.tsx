@@ -71,6 +71,8 @@ const FACTORS: { key: ScoreFactor; label: string; icon: string; color: string }[
   { key: "area", label: "Área", icon: "📐", color: "#f59e0b" },
 ];
 
+const PAGE_SIZE = 20; // imóveis por página na lista lateral
+
 const fmtPrice = (v: number | null) =>
   v ? "R$ " + v.toLocaleString("pt-BR") : "Consulte";
 const shortPrice = (v: number | null) =>
@@ -187,6 +189,24 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
       (a, b) => (scores[b.id]?.score ?? 0) - (scores[a.id]?.score ?? 0),
     );
   }, [filtered, scoreOn, scores]);
+
+  // ── paginação da lista (mapa continua mostrando todos os marcadores) ──
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  // volta pra página 1 quando os filtros/ordenação mudam
+  useEffect(() => { setPage(1); }, [bairro, tipo, quartos, pmin, pmax, activeAg, tab, scoreOn]);
+  // mantém a página dentro do total quando a contagem muda
+  useEffect(() => { setPage((p) => Math.min(p, pageCount)); }, [pageCount]);
+  // ao selecionar um imóvel (clique no mapa/URL), pula pra página dele
+  useEffect(() => {
+    if (!selected) return;
+    const idx = visible.findIndex((d) => d.id === selected);
+    if (idx >= 0) setPage(Math.floor(idx / PAGE_SIZE) + 1);
+  }, [selected, visible]);
+  const pageItems = useMemo(
+    () => visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [visible, page],
+  );
 
   const stats = useMemo(() => {
     const precos = filtered.map((d) => d.price).filter(Boolean) as number[];
@@ -501,7 +521,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                 Nenhum imóvel com esses filtros.
               </div>
             )}
-            {visible.map((d) => {
+            {pageItems.map((d) => {
               const p2 = perM2(d);
               const sc = scoreOn ? scores[d.id]?.score : undefined;
               const sel = d.id === selected;
@@ -533,6 +553,22 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
               );
             })}
           </div>
+
+          {/* paginação da lista */}
+          {pageCount > 1 && (
+            <div style={sx.pager}>
+              <button style={sx.pagerBtn(page <= 1)} disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))} aria-label="Página anterior">‹</button>
+              <span style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 600 }}>
+                {page} / {pageCount}
+                <span style={{ marginLeft: 6, opacity: 0.8 }}>
+                  ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, visible.length)} de {visible.length})
+                </span>
+              </span>
+              <button style={sx.pagerBtn(page >= pageCount)} disabled={page >= pageCount}
+                onClick={() => setPage((p) => Math.min(pageCount, p + 1))} aria-label="Próxima página">›</button>
+            </div>
+          )}
         </aside>
 
         {/* mapa */}
@@ -686,6 +722,16 @@ const sx = {
     background: "var(--paper-2)", border: "1px solid var(--border)", color: "var(--muted)",
     fontSize: 11, fontWeight: 600,
   } as React.CSSProperties,
+  pager: {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+    padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--paper)",
+  } as React.CSSProperties,
+  pagerBtn: (disabled: boolean) => ({
+    width: 32, height: 32, borderRadius: 8, fontSize: 16, fontWeight: 700, lineHeight: 1,
+    border: "1px solid var(--border)", background: "var(--paper)",
+    color: disabled ? "var(--border)" : "var(--ink)",
+    cursor: disabled ? "default" : "pointer",
+  }) as React.CSSProperties,
   detail: {
     position: "absolute", top: 16, right: 16, zIndex: 500, width: 300,
     background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 14,
