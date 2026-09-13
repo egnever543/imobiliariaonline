@@ -6,6 +6,7 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/paginate";
 import { fetchReadable } from "@/lib/ingest/jina";
 import { estimateCostUSD } from "@/lib/ingest/cost";
 import { auditListing, AUDIT_FIELDS, type FieldVerdict } from "@/lib/ingest/audit";
@@ -28,20 +29,18 @@ async function handle(req: Request) {
 
   // 1) listar imóveis + status de revisão (grátis)
   if (body?.list) {
-    const limit = Math.min(Number(body.limit) || 2000, 5000);
-    const { data: listings, error } = await db
-      .from("listings")
-      .select("id,title,type,neighborhood,price,source_url")
-      .order("first_seen_at", { ascending: false })
-      .limit(limit);
-    if (error) return Response.json({ error: error.message }, { status: 500 });
+    const listings = await selectAll<Record<string, unknown>>((from, to) =>
+      db
+        .from("listings")
+        .select("id,title,type,neighborhood,price,source_url")
+        .order("first_seen_at", { ascending: false })
+        .range(from, to),
+    );
 
-    // auditorias existentes → última por imóvel
-    const { data: audits } = await db
-      .from("data_audits")
-      .select("listing_id,applied,changes,created_at")
-      .order("created_at", { ascending: false })
-      .limit(20000);
+    // auditorias existentes → última por imóvel (paginado)
+    const audits = await selectAll<{ listing_id: string; applied: boolean; changes: Record<string, unknown>; created_at: string }>(
+      (from, to) => db.from("data_audits").select("listing_id,applied,changes,created_at").order("created_at", { ascending: false }).range(from, to),
+    );
     const last = new Map<string, { applied: boolean; changes: number; at: string }>();
     for (const a of audits ?? []) {
       const lid = a.listing_id as string;
