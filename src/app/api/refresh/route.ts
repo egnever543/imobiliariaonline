@@ -7,6 +7,7 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/paginate";
 import { fetchListingSignals } from "@/lib/ingest/structured";
 
 export const runtime = "nodejs";
@@ -38,14 +39,14 @@ async function handle(req: Request) {
   const db = getServiceClient();
 
   if (body?.list) {
-    const limit = Math.min(Number(body.limit) || 2000, 5000);
-    const { data, error } = await db
-      .from("listings")
-      .select("id,title,type,neighborhood,price,image_url,status,last_checked_at,source_url")
-      .order("first_seen_at", { ascending: false })
-      .limit(limit);
-    if (error) return Response.json({ error: error.message }, { status: 500 });
-    return Response.json({ listings: data ?? [] });
+    const data = await selectAll<Record<string, unknown>>((from, to) =>
+      db
+        .from("listings")
+        .select("id,title,type,neighborhood,price,image_url,status,last_checked_at,source_url")
+        .order("first_seen_at", { ascending: false })
+        .range(from, to),
+    );
+    return Response.json({ listings: data });
   }
 
   if (!body?.listingId) {

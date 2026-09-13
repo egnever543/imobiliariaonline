@@ -4,6 +4,7 @@
 // Server Component: lê os números do banco (tolerante a tabelas ausentes).
 
 import { getServiceClient } from "@/lib/supabase/server";
+import { selectAll } from "@/lib/supabase/paginate";
 import Nav from "@/components/Nav";
 
 export const dynamic = "force-dynamic";
@@ -60,11 +61,13 @@ async function load(): Promise<Metrics> {
     count(db, "pois"),
   ]);
 
-  // imóveis já auditados (distintos)
+  // imóveis já auditados (distintos) — paginado (PostgREST limita ~1.000/req)
   let audited = 0;
   try {
-    const { data } = await db.from("data_audits").select("listing_id").limit(50000);
-    audited = new Set((data ?? []).map((r) => r.listing_id as string)).size;
+    const rows = await selectAll<{ listing_id: string }>((from, to) =>
+      db.from("data_audits").select("listing_id").range(from, to),
+    );
+    audited = new Set(rows.map((r) => r.listing_id)).size;
   } catch {
     audited = 0;
   }
