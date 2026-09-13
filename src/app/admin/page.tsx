@@ -21,6 +21,7 @@ interface Metrics {
   audited: number;
   spendTotal: number;
   spendToday: number;
+  statuses: Record<string, number>;
 }
 
 async function count(
@@ -47,6 +48,7 @@ async function load(): Promise<Metrics> {
     return {
       configured: false, cities: 0, agencies: 0, listings: 0, geoOk: 0,
       noGeo: 0, noPrice: 0, pois: 0, audited: 0, spendTotal: 0, spendToday: 0,
+      statuses: {},
     };
   }
 
@@ -72,6 +74,20 @@ async function load(): Promise<Metrics> {
     audited = 0;
   }
 
+  // distribuição por situação (ativo/vendido/alugado…) — paginado
+  const statuses: Record<string, number> = {};
+  try {
+    const rows = await selectAll<{ status: string | null }>((from, to) =>
+      db.from("listings").select("status").range(from, to),
+    );
+    for (const r of rows) {
+      const s = (r.status ?? "ativo") || "ativo";
+      statuses[s] = (statuses[s] ?? 0) + 1;
+    }
+  } catch {
+    /* coluna status ainda não existe */
+  }
+
   // gasto com IA
   let spendTotal = 0, spendToday = 0;
   try {
@@ -84,12 +100,23 @@ async function load(): Promise<Metrics> {
 
   return {
     configured: true, cities, agencies, listings, geoOk,
-    noGeo: Math.max(0, listings - geoOk), noPrice, pois, audited, spendTotal, spendToday,
+    noGeo: Math.max(0, listings - geoOk), noPrice, pois, audited, spendTotal, spendToday, statuses,
   };
 }
 
 const usd = (v: number) => "US$ " + (v < 1 ? v.toFixed(4) : v.toFixed(2));
 const n = (v: number) => v.toLocaleString("pt-BR");
+
+// rótulos e cores das situações (o resto cai em "outros")
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  ativo: { label: "Ativos", color: "#16a34a" },
+  vendido: { label: "Vendidos", color: "#dc2626" },
+  alugado: { label: "Alugados", color: "#d97706" },
+  locacao: { label: "Locação", color: "#0891b2" },
+  reservado: { label: "Reservados", color: "#7c3aed" },
+  indisponivel: { label: "Indisponíveis", color: "#64748b" },
+};
+const STATUS_ORDER = ["ativo", "vendido", "alugado", "locacao", "reservado", "indisponivel"];
 
 interface Tool {
   href: string; icon: string; name: string; desc: string; info: string;
@@ -173,6 +200,50 @@ export default async function AdminHub() {
             </div>
           ))}
         </div>
+
+        {/* Situação dos imóveis */}
+        {(() => {
+          const entries = Object.entries(m.statuses).filter(([, c]) => c > 0);
+          if (entries.length === 0) return null;
+          const totalS = entries.reduce((a, [, c]) => a + c, 0);
+          const ordered = entries.sort((a, b) => {
+            const ia = STATUS_ORDER.indexOf(a[0]); const ib = STATUS_ORDER.indexOf(b[0]);
+            return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+          });
+          const colorOf = (k: string) => STATUS_META[k]?.color ?? "#94a3b8";
+          const labelOf = (k: string) => STATUS_META[k]?.label ?? k;
+          return (
+            <section style={{ marginTop: 28 }}>
+              <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>
+                Situação dos imóveis{" "}
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>
+                  · só os ativos vão pro mapa
+                </span>
+              </h2>
+              <div className="card" style={{ padding: 16 }}>
+                {/* barra proporcional */}
+                <div style={{ display: "flex", height: 10, borderRadius: 999, overflow: "hidden", background: "var(--border)" }}>
+                  {ordered.map(([k, c]) => (
+                    <div key={k} title={`${labelOf(k)}: ${n(c)}`}
+                      style={{ width: `${(c / totalS) * 100}%`, background: colorOf(k) }} />
+                  ))}
+                </div>
+                {/* legenda */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 20px", marginTop: 14 }}>
+                  {ordered.map(([k, c]) => (
+                    <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 10, height: 10, borderRadius: 3, background: colorOf(k), flexShrink: 0 }} />
+                      <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{n(c)}</span>
+                      <span style={{ fontSize: 13, color: "var(--muted)" }}>
+                        {labelOf(k)} · {Math.round((c / totalS) * 100)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          );
+        })()}
 
         {/* Pendências e sugestões */}
         <section style={{ marginTop: 28 }}>
