@@ -59,11 +59,14 @@ export default function Catalogo({ listings }: { listings: Card[] }) {
   const [bairro, setBairro] = useState("");
   const [q, setQ] = useState("");
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   const tipos = useMemo(() => [...new Set(listings.map((l) => l.type).filter(Boolean))].sort() as string[], [listings]);
   const bairros = useMemo(() => [...new Set(listings.map((l) => l.neighborhood).filter(Boolean))].sort() as string[], [listings]);
 
   const shown = useMemo(() => listings.filter((l) => {
+    // por padrão esconde vendido/alugado/locação/indisponível (ficam no banco)
+    if (!showInactive && l.status && l.status !== "ativo") return false;
     if (tipo && l.type !== tipo) return false;
     if (bairro && l.neighborhood !== bairro) return false;
     if (onlyIncomplete && missing(l).length === 0) return false;
@@ -72,7 +75,7 @@ export default function Catalogo({ listings }: { listings: Card[] }) {
       if (!s.includes(q.toLowerCase())) return false;
     }
     return true;
-  }), [listings, tipo, bairro, onlyIncomplete, q]);
+  }), [listings, tipo, bairro, onlyIncomplete, showInactive, q]);
 
   const field: React.CSSProperties = {
     padding: "8px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)",
@@ -103,6 +106,10 @@ export default function Catalogo({ listings }: { listings: Card[] }) {
         <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer" }}>
           <input type="checkbox" checked={onlyIncomplete} onChange={(e) => setOnlyIncomplete(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
           só incompletos
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
+          incluir vendidos/alugados
         </label>
       </div>
 

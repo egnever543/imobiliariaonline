@@ -37,6 +37,7 @@ export interface CanonicalListing extends ExtractedListing {
   lng: number | null;
   geo_method: string | null;
   raw: Record<string, unknown>;
+  status?: string; // ativo | vendido | alugado | reservado | locacao
 }
 
 /** Configuração de uma coleta para uma imobiliária. */

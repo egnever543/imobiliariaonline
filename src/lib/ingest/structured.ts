@@ -107,6 +107,60 @@ export function extractStructured(html: string, url: string): ExtractedListing {
   return out;
 }
 
+// ── Situação do anúncio (vendido / alugado / locação) ─────────────────
+export type ListingStatus = "ativo" | "vendido" | "alugado" | "reservado" | "locacao";
+
+/**
+ * Detecta a situação do anúncio pelo TEXTO VISÍVEL (sem tags) + a URL.
+ * Conservador: usa palavra no SINGULAR (vendido, não "vendidos") para menus
+ * do tipo "Imóveis Vendidos" não darem falso positivo.
+ */
+export function detectStatus(html: string, url: string): ListingStatus {
+  let u = url;
+  try { u = decodeURIComponent(url); } catch { /* usa como veio */ }
+  u = u.toLowerCase();
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .toLowerCase();
+  const has = (re: RegExp) => re.test(text);
+
+  // marcações de indisponibilidade (o que descartamos/marcamos)
+  if (has(/\bvendid[oa]\b/)) return "vendido";
+  if (has(/\b(alugad[oa]|locad[oa])\b/)) return "alugado";
+  if (has(/\breservad[oa]\b/)) return "reservado";
+
+  // tipo de transação: locação/aluguel (não é venda) — pista pela URL
+  if (/(^|[^a-z])(loca[cç][aã]o|aluguel|para-alugar|locar)([^a-z]|$)/.test(u)) return "locacao";
+
+  return "ativo";
+}
+
+/** Busca o HTML uma vez e devolve os campos estruturados + a situação. */
+export async function fetchListingSignals(
+  url: string,
+  timeoutMs = 12_000,
+): Promise<{ listing: ExtractedListing; status: ListingStatus } | null> {
+  try {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), timeoutMs);
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; radar-imobiliario/0.1; +https://vercel.app)",
+      },
+      signal: c.signal,
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const html = await res.text();
+    return { listing: extractStructured(html, url), status: detectStatus(html, url) };
+  } catch {
+    return null;
+  }
+}
+
 /** Busca o HTML cru e extrai o que for estruturado. */
 export async function fetchStructured(
   url: string,

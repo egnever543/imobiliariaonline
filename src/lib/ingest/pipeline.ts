@@ -11,7 +11,7 @@ import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
 import { geocode } from "./geocode";
-import { fetchStructured, mergeFill, EMPTY } from "./structured";
+import { fetchListingSignals, mergeFill, EMPTY, type ListingStatus } from "./structured";
 import { estimateCostUSD } from "./cost";
 import { enumerateFromSitemap } from "./sitemap";
 import { normalizeWebsite } from "./url";
@@ -188,9 +188,12 @@ export async function ingestOne(
       }
     }
 
-    // 1. Estruturado (grátis): JSON-LD + OpenGraph + microdados + pistas da URL.
+    // 1. Estruturado (grátis): JSON-LD + OpenGraph + microdados + pistas da URL
+    //    + situação (vendido/alugado/locação).
     let via = "jsonld";
-    const structured = await fetchStructured(url);
+    const signals = await fetchListingSignals(url);
+    const structured = signals?.listing ?? null;
+    const status: ListingStatus = signals?.status ?? "ativo";
     let listing: ExtractedListing = structured ?? { ...EMPTY };
     let model = "";
     let inputTokens = 0;
@@ -252,6 +255,7 @@ export async function ingestOne(
 
     const canonical = normalizeListing(listing, source, url);
     canonical.raw = { via, ...canonical.raw };
+    canonical.status = status;
 
     // geocodifica o endereço (não falha a coleta se não achar coordenadas)
     const geo = await geocode({
