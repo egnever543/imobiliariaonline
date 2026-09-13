@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -12,6 +12,13 @@ export const metadata: Metadata = {
   title: "Radar Imobiliário",
   description:
     "Inteligência de mercado imobiliário: o inventário da cidade em uma base única e buscável.",
+};
+
+// Sem isto o celular renderiza a página em ~980px e reduz o zoom (tudo minúsculo).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#2563eb",
 };
 
 export default function RootLayout({
