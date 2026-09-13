@@ -126,6 +126,22 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
   const [heatOn, setHeatOn] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
 
+  // ── responsivo: no celular, Lista e Mapa não cabem lado a lado ──
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileView, setMobileView] = useState<"lista" | "mapa">("lista");
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const on = () => setIsMobile(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  // seleciona um imóvel e, no celular, mostra o mapa para vê-lo
+  function pick(id: string) {
+    setSelected(id);
+    if (window.matchMedia("(max-width: 760px)").matches) setMobileView("mapa");
+  }
+
   // nota de vizinhança de um imóvel: comércios bons por perto (≤1,2 km),
   // com peso e decaimento por distância. Devolve nota 0–100 + contagens.
   function neighborhood(d: Listing | null) {
@@ -337,11 +353,22 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
   useEffect(() => {
     try {
       const id = new URLSearchParams(window.location.search).get("imovel");
-      if (id) setSelected(id);
+      if (id) {
+        setSelected(id);
+        if (window.matchMedia("(max-width: 760px)").matches) setMobileView("mapa");
+      }
     } catch {
       /* ignora */
     }
   }, []);
+
+  // ao mostrar o mapa (troca de aba no celular), recalcula o tamanho
+  useEffect(() => {
+    if (mapRef.current) {
+      const t = setTimeout(() => mapRef.current?.invalidateSize(), 80);
+      return () => clearTimeout(t);
+    }
+  }, [mobileView, isMobile, mapReady]);
 
   // voa até o selecionado
   useEffect(() => {
@@ -491,10 +518,25 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
         <a href="/admin" style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>Painel →</a>
       </header>
 
+      {/* alternância Lista/Mapa (só no celular) */}
+      {isMobile && (
+        <div style={sx.mobileTabs}>
+          <button style={sx.mtab(mobileView === "lista")} onClick={() => setMobileView("lista")}>
+            📋 Lista ({stats.count})
+          </button>
+          <button style={sx.mtab(mobileView === "mapa")} onClick={() => setMobileView("mapa")}>
+            🗺️ Mapa
+          </button>
+        </div>
+      )}
+
       {/* ───────── Corpo: lista + mapa ───────── */}
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         {/* lista */}
-        <aside style={sx.list}>
+        <aside style={{
+          ...sx.list,
+          ...(isMobile ? { width: "100%", minWidth: 0, borderRight: "none", display: mobileView === "lista" ? "flex" : "none" } : {}),
+        }}>
           <div style={sx.listHead}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <strong style={{ fontSize: 15 }}>{stats.count}</strong>
@@ -526,7 +568,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
               const sc = scoreOn ? scores[d.id]?.score : undefined;
               const sel = d.id === selected;
               return (
-                <div key={d.id} onClick={() => setSelected(d.id)} style={sx.card(sel)}>
+                <div key={d.id} onClick={() => pick(d.id)} style={sx.card(sel)}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)", letterSpacing: "-0.02em" }}>
@@ -572,12 +614,15 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
         </aside>
 
         {/* mapa */}
-        <div style={{ flex: 1, position: "relative" }}>
+        <div style={{
+          flex: 1, position: "relative",
+          ...(isMobile ? { display: mobileView === "mapa" ? "block" : "none" } : {}),
+        }}>
           <div id="exp-map" style={{ position: "absolute", inset: 0 }} />
 
           {/* painel de detalhe */}
           {selectedListing && (
-            <div style={sx.detail}>
+            <div style={isMobile ? sx.detailMobile : sx.detail}>
               <button style={sx.detailClose} onClick={() => setSelected(null)} aria-label="fechar">✕</button>
               <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
                 {selectedListing.title ?? selectedListing.type ?? "Imóvel"}
@@ -732,10 +777,26 @@ const sx = {
     color: disabled ? "var(--border)" : "var(--ink)",
     cursor: disabled ? "default" : "pointer",
   }) as React.CSSProperties,
+  mobileTabs: {
+    display: "flex", gap: 6, padding: "8px 12px", background: "var(--paper)",
+    borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 550,
+  } as React.CSSProperties,
+  mtab: (on: boolean) => ({
+    flex: 1, padding: "10px 12px", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer",
+    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+    background: on ? "var(--accent)" : "var(--paper)",
+    color: on ? "#fff" : "var(--muted)",
+  }) as React.CSSProperties,
   detail: {
     position: "absolute", top: 16, right: 16, zIndex: 500, width: 300,
     background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 14,
     boxShadow: "var(--shadow-lg)", padding: 16,
+  } as React.CSSProperties,
+  detailMobile: {
+    position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 500,
+    maxHeight: "68vh", overflow: "auto",
+    background: "var(--paper)", borderTop: "1px solid var(--border)",
+    borderRadius: "16px 16px 0 0", boxShadow: "var(--shadow-lg)", padding: 16,
   } as React.CSSProperties,
   detailClose: {
     position: "absolute", top: 10, right: 10, width: 26, height: 26, borderRadius: 7,

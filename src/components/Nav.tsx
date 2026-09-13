@@ -73,10 +73,12 @@ export default function Nav() {
         style={{
           maxWidth: 1080,
           margin: "0 auto",
-          padding: "12px 24px",
+          padding: "12px 16px",
           display: "flex",
           alignItems: "center",
-          gap: 20,
+          gap: 12,
+          flexWrap: "wrap",
+          rowGap: 4,
         }}
       >
         <Brand />
