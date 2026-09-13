@@ -152,6 +152,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
   // ── responsivo: no celular, Lista e Mapa não cabem lado a lado ──
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"lista" | "mapa">("lista");
+  const [filtersOpen, setFiltersOpen] = useState(false); // filtros recolhidos no celular
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 760px)");
     const on = () => setIsMobile(mq.matches);
@@ -429,7 +430,16 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
           <span style={{ fontWeight: 700, fontSize: 14 }}>Radar</span>
         </a>
 
-        <div style={sx.filters}>
+        {isMobile && (
+          <button style={sx.menuBtn(filtersOpen || activeFilters > 0)} onClick={() => setFiltersOpen((v) => !v)}>
+            ⚙️ Filtros{activeFilters > 0 ? ` (${activeFilters})` : ""} {filtersOpen ? "▲" : "▾"}
+          </button>
+        )}
+
+        <div style={{
+          ...sx.filters,
+          ...(isMobile ? { width: "100%", display: filtersOpen ? "flex" : "none" } : {}),
+        }}>
           <select style={sx.field} value={tipo} onChange={(e) => setTipo(e.target.value)}>
             <option value="">Tipo: todos</option>
             {tipos.map((t) => <option key={t} value={t}>{t}</option>)}
