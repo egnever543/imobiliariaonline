@@ -7,7 +7,7 @@
 
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
-import { fetchStructured } from "@/lib/ingest/structured";
+import { fetchListingSignals } from "@/lib/ingest/structured";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -63,17 +63,20 @@ async function handle(req: Request) {
   const cur = row as unknown as Record<string, unknown> & { id: string; source_url: string };
   const now = new Date().toISOString();
 
-  // revisita (grátis)
-  const s = await fetchStructured(cur.source_url);
+  // revisita (grátis): campos estruturados + situação (vendido/alugado/locação)
+  const sig = await fetchListingSignals(cur.source_url);
 
-  // página não abre mais → provavelmente saiu do ar / vendido
-  if (!s) {
+  // página não abre mais → provavelmente saiu do ar
+  if (!sig) {
     await db.from("listings").update({ status: "indisponivel", last_checked_at: now }).eq("id", cur.id);
     return Response.json({ id: cur.id, status: "indisponivel", changed: {} });
   }
 
+  const s = sig.listing;
   const changed: Record<string, { from: unknown; to: unknown }> = {};
-  const patch: Record<string, unknown> = { status: "ativo", last_checked_at: now, last_seen_at: now };
+  // situação detectada (ativo | vendido | alugado | reservado | locacao)
+  const patch: Record<string, unknown> = { status: sig.status, last_checked_at: now, last_seen_at: now };
+  if (sig.status !== "ativo") changed.status = { from: "ativo", to: sig.status };
 
   // preço pode mudar
   const newPrice = sanePrice((s as unknown as Record<string, unknown>).price);
@@ -97,5 +100,5 @@ async function handle(req: Request) {
     db.from("listing_snapshots").insert({ listing_id: cur.id, price: patch.price }).then(() => {}, () => {});
   }
 
-  return Response.json({ id: cur.id, status: "ativo", changed });
+  return Response.json({ id: cur.id, status: sig.status, changed });
 }
