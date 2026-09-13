@@ -70,6 +70,64 @@ function fromMeta(html: string): Partial<ExtractedListing> {
   };
 }
 
+// ── Preço no TEXTO VISÍVEL (fallback, grátis) ──
+// Muitos sites mostram o valor só como texto ("Valor R$ 250.000,00") sem
+// JSON-LD nem og:price. Este fallback varre o corpo da página atrás de
+// "R$ ...", ignorando condomínio/IPTU/parcela/financiamento, e escolhe o
+// maior valor plausível (o de venda costuma ser o maior número da página).
+// Beneficia tanto a coleta quanto o refresh (que não usa IA).
+
+// Número no formato BR do texto: ponto = milhar, vírgula = decimal.
+//   "250.000"    -> 250000
+//   "1.250.000"  -> 1250000
+//   "250.000,50" -> 250000.5
+//   "250000"     -> 250000
+function brNum(raw: string): number | null {
+  let s = raw.replace(/[^0-9.,]/g, "");
+  if (!s) return null;
+  if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else s = s.replace(/\./g, ""); // sem vírgula: pontos são separador de milhar
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+// rótulo imediatamente antes do "R$" que indica que NÃO é o preço de venda
+const PRICE_EXCLUDE =
+  /(condom[ií]nio|iptu|\btaxa\b|parcela|mensal|financ|entrada|di[áa]ria|avalia|c[óo]d|refer[êe]ncia)/i;
+// sufixo logo após o valor que denuncia mensalidade ("R$ 2.500/mês")
+const PRICE_SUFFIX_EXCLUDE = /^\s*(\/\s*m[êe]s|por\s*m[êe]s|\s*mensal|ao\s*m[êe]s)/i;
+// rótulo que confirma que É o preço de venda (tem prioridade)
+const PRICE_PREFER = /(valor|pre[çc]o|venda|à\s*vista|a\s*vista)/i;
+
+function priceFromText(html: string): number | null {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ");
+
+  const re = /r\$\s*([0-9][0-9.\s]{2,15}(?:,\d{1,2})?)/gi;
+  const cands: { value: number; preferred: boolean }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const value = brNum(m[1]);
+    if (value == null || value < 5000 || value > 80_000_000) continue;
+    // só o RÓTULO IMEDIATO antes do R$ (corta no separador anterior, para não
+    // herdar o rótulo do item vizinho, ex.: "... Condomínio: R$ 850 | R$ 250.000")
+    const win = text.slice(Math.max(0, m.index - 45), m.index).toLowerCase();
+    const label = win.split(/[.|;:•·\n]|r\$/).pop() ?? win;
+    const suffix = text.slice(m.index + m[0].length, m.index + m[0].length + 8).toLowerCase();
+    if (PRICE_EXCLUDE.test(label)) continue;
+    if (PRICE_SUFFIX_EXCLUDE.test(suffix)) continue;
+    cands.push({ value, preferred: PRICE_PREFER.test(label) });
+  }
+  if (!cands.length) return null;
+  const preferred = cands.filter((c) => c.preferred);
+  const pool = preferred.length ? preferred : cands;
+  return pool.reduce((max, c) => (c.value > max ? c.value : max), 0) || null;
+}
+
 // ── Pistas da URL (tipo, quartos, vagas, bairro) ──
 function fromUrl(url: string): Partial<ExtractedListing> {
   let u = url;
@@ -103,6 +161,11 @@ export function extractStructured(html: string, url: string): ExtractedListing {
   // prioridade: JSON-LD > microdados/OG > URL
   out = mergeFill(out, extractJsonLd(html));
   out = mergeFill(out, fromMeta(html));
+  // fallback: preço só como texto visível na página
+  if (out.price == null) {
+    const p = priceFromText(html);
+    if (p != null) out.price = p;
+  }
   out = mergeFill(out, fromUrl(url));
   return out;
 }
