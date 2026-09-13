@@ -22,7 +22,7 @@ async function loadListings(): Promise<Listing[]> {
   try {
     const db = getServiceClient();
     const cols =
-      "id,title,type,price,price_original,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,accepts_permuta,is_launch,source_url,agencies(name)";
+      "id,title,type,price,price_original,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,accepts_permuta,is_launch,image_url,source_url,agencies(name)";
 
     // Só imóveis ATIVOS entram no mapa (vendido/alugado/locação/indisponível
     // ficam no banco, mas fora do mapa). Paginado para trazer TODOS (o

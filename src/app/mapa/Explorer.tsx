@@ -39,6 +39,7 @@ export interface Listing {
   geo_method: string | null;
   accepts_permuta: boolean | null;
   is_launch: boolean | null;
+  image_url: string | null;
   source_url: string;
   agency: string;
 }
@@ -90,6 +91,28 @@ const scoreColor = (s: number) =>
   s >= 70 ? "#10b981" : s >= 50 ? "#f59e0b" : s >= 35 ? "#f97316" : "#ef4444";
 const scoreLabel = (s: number) =>
   s >= 70 ? "Excelente" : s >= 50 ? "Bom" : s >= 35 ? "Regular" : "Fraco";
+
+// Miniatura/foto do imóvel com fallback "sem foto" (a og:image pode falhar).
+function Photo({
+  src, alt, wrap, label = "sem foto", labelSize = 11,
+}: { src: string | null; alt: string; wrap: React.CSSProperties; label?: string; labelSize?: number }) {
+  const [err, setErr] = useState(false);
+  const ok = src && !err;
+  return (
+    <div style={{
+      background: "var(--paper-2)", overflow: "hidden", flexShrink: 0,
+      display: "grid", placeItems: "center", border: "1px solid var(--border)", ...wrap,
+    }}>
+      {ok ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src!} alt={alt} loading="lazy" onError={() => setErr(true)}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <span style={{ color: "var(--muted)", fontSize: labelSize }}>{label}</span>
+      )}
+    </div>
+  );
+}
 
 export default function Explorer({ listings, pois = [] }: { listings: Listing[]; pois?: PoiPoint[] }) {
   const agencies = useMemo(
@@ -569,27 +592,33 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
               const sel = d.id === selected;
               return (
                 <div key={d.id} onClick={() => pick(d.id)} style={sx.card(sel)}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)", letterSpacing: "-0.02em" }}>
-                        {fmtPrice(d.price)}
+                  <div style={{ display: "flex", gap: 11 }}>
+                    <Photo src={d.image_url} alt={d.title ?? d.type ?? "Imóvel"}
+                      wrap={{ width: 74, height: 74, borderRadius: 10 }} labelSize={9} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)", letterSpacing: "-0.02em" }}>
+                            {fmtPrice(d.price)}
+                          </div>
+                          {p2 && <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>R$ {p2.toLocaleString("pt-BR")}/m²</div>}
+                        </div>
+                        {sc != null && (
+                          <span style={{ background: scoreColor(sc), color: "#fff", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 800, height: "fit-content" }}>{sc}</span>
+                        )}
                       </div>
-                      {p2 && <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>R$ {p2.toLocaleString("pt-BR")}/m²</div>}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                        {d.type && <span style={sx.pill}>{d.type}</span>}
+                        {d.bedrooms ? <span style={sx.metaPill}>🛏 {d.bedrooms}</span> : null}
+                        {d.parking ? <span style={sx.metaPill}>🚗 {d.parking}</span> : null}
+                        {d.area_total_m2 ? <span style={sx.metaPill}>📐 {fmtArea(d.area_total_m2)}</span> : null}
+                      </div>
+                      <div style={{ fontSize: 12, marginTop: 7, display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: 99, background: colors[d.agency], display: "inline-block", flexShrink: 0 }} />
+                        <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.neighborhood ?? "sem bairro"} · {d.agency}</span>
+                        {isApprox(d) && <span style={{ color: "var(--warn)" }}>· 📍</span>}
+                      </div>
                     </div>
-                    {sc != null && (
-                      <span style={{ background: scoreColor(sc), color: "#fff", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 800, height: "fit-content" }}>{sc}</span>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                    {d.type && <span style={sx.pill}>{d.type}</span>}
-                    {d.bedrooms ? <span style={sx.metaPill}>🛏 {d.bedrooms}</span> : null}
-                    {d.parking ? <span style={sx.metaPill}>🚗 {d.parking}</span> : null}
-                    {d.area_total_m2 ? <span style={sx.metaPill}>📐 {fmtArea(d.area_total_m2)}</span> : null}
-                  </div>
-                  <div style={{ fontSize: 12, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: 99, background: colors[d.agency], display: "inline-block" }} />
-                    <span style={{ color: "var(--muted)" }}>{d.neighborhood ?? "sem bairro"} · {d.agency}</span>
-                    {isApprox(d) && <span style={{ color: "var(--warn)" }}>· 📍</span>}
                   </div>
                 </div>
               );
@@ -624,6 +653,10 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
           {selectedListing && (
             <div style={isMobile ? sx.detailMobile : sx.detail}>
               <button style={sx.detailClose} onClick={() => setSelected(null)} aria-label="fechar">✕</button>
+              <Photo key={selectedListing.id} src={selectedListing.image_url}
+                alt={selectedListing.title ?? selectedListing.type ?? "Imóvel"}
+                wrap={{ width: "100%", aspectRatio: "16 / 10", borderRadius: 10, marginBottom: 12 }}
+                labelSize={12} label="sem foto" />
               <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
                 {selectedListing.title ?? selectedListing.type ?? "Imóvel"}
               </div>
