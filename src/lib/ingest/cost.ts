@@ -6,6 +6,9 @@ export const PRICES: Record<string, { in: number; out: number }> = {
   "claude-opus-4-8": { in: 5, out: 25 },
   "claude-sonnet-5": { in: 2, out: 10 },
   "claude-haiku-4-5": { in: 1, out: 5 },
+  // OpenAI (para testar auditoria barata)
+  "gpt-5-nano": { in: 0.05, out: 0.2 },
+  "gpt-5-mini": { in: 0.25, out: 2 },
 };
 
 /** Custo estimado (US$) de uma quantidade de tokens em um modelo. */

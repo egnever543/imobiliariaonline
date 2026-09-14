@@ -155,6 +155,7 @@ export default function Auditoria() {
           <div>
             <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Modelo</label>
             <select style={input} value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="gpt-5-nano">GPT-5 Nano (mais barato)</option>
               <option value="claude-haiku-4-5">Haiku (barato)</option>
               <option value="claude-sonnet-5">Sonnet</option>
               <option value="claude-opus-5">Opus</option>
