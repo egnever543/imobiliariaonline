@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { scoreListings, haversine, type ScorableListing } from "@/lib/scoring/score";
+import { scoreListings, haversine, type ScorableListing, type ListingInsight } from "@/lib/scoring/score";
 import {
   SCORE_PROFILES,
   DEFAULT_WEIGHTS,
@@ -65,6 +65,7 @@ const PALETTE = [
   "#f59e0b", "#e11d48", "#10b981", "#f97316",
 ];
 const FACTORS: { key: ScoreFactor; label: string; icon: string; color: string }[] = [
+  { key: "deal", label: "Oferta", icon: "🏷️", color: "#7c3aed" },
   { key: "beach", label: "Praia", icon: "🏖️", color: "#0ea5e9" },
   { key: "poi", label: "POIs", icon: "📍", color: "#e11d48" },
   { key: "pricePerM2", label: "R$/m²", icon: "💰", color: "#10b981" },
@@ -208,18 +209,19 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
   }, [listings, activeAg, bairro, tipo, quartos, pmin, pmax, tab]);
 
   const scores = useMemo(() => {
-    if (!scoreOn) return {} as Record<string, { score: number; factors: Record<ScoreFactor, number> }>;
+    if (!scoreOn) return {} as Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }>;
     const scorable: ScorableListing[] = filtered.map((d) => ({
       id: d.id, price: d.price, area_total_m2: d.area_total_m2,
       lat: d.lat, lng: d.lng, geo_method: d.geo_method,
+      neighborhood: d.neighborhood, type: d.type,
     }));
     const res = scoreListings(scorable, {
       weights,
       coastline: ITAPOA_COASTLINE,
       pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
     });
-    const m: Record<string, { score: number; factors: Record<ScoreFactor, number> }> = {};
-    res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors }));
+    const m: Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }> = {};
+    res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors, insight: r.insight }));
     return m;
   }, [scoreOn, filtered, weights, pois]);
 
@@ -693,6 +695,61 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                 {[selectedListing.street, selectedListing.neighborhood].filter(Boolean).join(", ") || "Endereço não informado"}
                 {isApprox(selectedListing) && " · 📍 aproximado"}
               </div>
+
+              {/* avaliação: preço justo, oferta e motivos (só com ranking ligado) */}
+              {scoreOn && (() => {
+                const info = scores[selectedListing.id];
+                if (!info) return null;
+                const ins = info.insight;
+                const profLabel = SCORE_PROFILES.find((p) => p.id === profile)?.label ?? "Personalizado";
+                const reasons: string[] = [];
+                if (ins.discountPct != null) {
+                  const pct = Math.round(Math.abs(ins.discountPct) * 100);
+                  const base = ins.basis === "bairro" ? "do bairro" : ins.basis === "tipo" ? "do tipo" : "da cidade";
+                  if (ins.discountPct > 0.03) reasons.push(`${pct}% abaixo do R$/m² médio ${base}`);
+                  else if (ins.discountPct < -0.03) reasons.push(`${pct}% acima do R$/m² médio ${base}`);
+                  else reasons.push(`no R$/m² médio ${base}`);
+                }
+                const nb = neighborhood(selectedListing);
+                if (nb) {
+                  const top = Object.entries(nb.counts).sort((a, b) => b[1] - a[1])[0];
+                  if (top) reasons.push(`${top[1]} ${POI_LABEL[top[0]] ?? top[0]} num raio de 1,2 km`);
+                }
+                if (selectedListing.lat != null && selectedListing.lng != null && ITAPOA_COASTLINE.length) {
+                  const bd = Math.min(...ITAPOA_COASTLINE.map((c) => haversine(selectedListing.lat!, selectedListing.lng!, c[0], c[1])));
+                  if (bd < 1500) reasons.push(`praia a ~${bd < 1000 ? Math.round(bd) + " m" : (bd / 1000).toFixed(1) + " km"}`);
+                }
+                return (
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--accent-weak)", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-ink)" }}>Avaliação · {profLabel}</span>
+                      <span style={{ background: scoreColor(info.score), color: "#fff", borderRadius: 8, padding: "2px 10px", fontSize: 14, fontWeight: 800 }}>{info.score}</span>
+                    </div>
+                    {ins.fairPrice != null && (
+                      <div style={{ fontSize: 12.5, marginTop: 8, color: "var(--ink)" }}>
+                        Preço justo estimado: <strong>{fmtPrice(ins.fairPrice)}</strong>
+                        {ins.discountPct != null && (
+                          <span style={{ marginLeft: 6, fontWeight: 800, color: ins.discountPct >= 0 ? "var(--ok)" : "var(--danger)" }}>
+                            {ins.discountPct >= 0 ? "−" : "+"}{Math.round(Math.abs(ins.discountPct) * 100)}%
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {reasons.length > 0 && (
+                      <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+                        {reasons.map((r, i) => (
+                          <li key={i} style={{ fontSize: 12, color: "var(--ink)", display: "flex", gap: 6 }}>
+                            <span style={{ color: "var(--ok)", fontWeight: 800 }}>✓</span>{r}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
+                      Confiança do dado: {ins.confidence}%{ins.sample ? ` · base: ${ins.sample} comparáveis` : ""}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* nota de vizinhança (comércios por perto) */}
               {(() => {

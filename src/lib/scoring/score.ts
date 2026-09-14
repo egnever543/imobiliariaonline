@@ -11,6 +11,19 @@ export interface ScorableListing {
   lat: number | null;
   lng: number | null;
   geo_method: string | null;
+  neighborhood?: string | null;
+  type?: string | null;
+}
+
+// Explicação por imóvel: preço justo estimado, desconto e confiança do dado.
+export interface ListingInsight {
+  pm2: number | null;          // R$/m² deste imóvel
+  expectedPm2: number | null;  // R$/m² esperado (mediana do grupo comparável)
+  fairPrice: number | null;    // preço justo estimado (expectedPm2 × área)
+  discountPct: number | null;  // +% abaixo do esperado (positivo = barganha)
+  basis: "bairro" | "tipo" | "cidade" | null; // base da comparação
+  sample: number;              // nº de imóveis comparáveis
+  confidence: number;          // 0–100, confiança nos dados (não é mérito)
 }
 
 export interface Poi {
@@ -30,7 +43,17 @@ export interface ScoredListing {
   id: string;
   score: number;
   factors: Record<ScoreFactor, number>;
+  insight: ListingInsight;
 }
+
+function median(nums: number[]): number {
+  if (!nums.length) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
+const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().trim();
 
 const R = 6_371_000;
 export function haversine(
@@ -120,6 +143,30 @@ export function scoreListings(
     (byCat[p.category] ??= []).push(p);
   });
 
+  // ── "preço justo": mediana de R$/m² por (bairro, tipo), por tipo e geral.
+  // O desconto de cada imóvel é medido contra o grupo comparável mais
+  // específico que tenha amostra suficiente. É o coração do fator "oferta".
+  const MIN_SAMPLE = 5;
+  const groups: Record<string, number[]> = {};
+  const push = (k: string, v: number) => (groups[k] ??= []).push(v);
+  listings.forEach((d) => {
+    if (!d.price || !d.area_total_m2 || d.area_total_m2 <= 0) return;
+    const pm2 = d.price / d.area_total_m2;
+    push(`nt:${norm(d.neighborhood)}|${norm(d.type)}`, pm2);
+    push(`t:${norm(d.type)}`, pm2);
+    push("all", pm2);
+  });
+  const medianCache: Record<string, number> = {};
+  const medOf = (k: string) => (medianCache[k] ??= median(groups[k] ?? []));
+  function expectedPm2Of(d: ScorableListing): { value: number | null; basis: ListingInsight["basis"]; sample: number } {
+    const kNT = `nt:${norm(d.neighborhood)}|${norm(d.type)}`;
+    const kT = `t:${norm(d.type)}`;
+    if ((groups[kNT]?.length ?? 0) >= MIN_SAMPLE) return { value: medOf(kNT), basis: "bairro", sample: groups[kNT].length };
+    if ((groups[kT]?.length ?? 0) >= MIN_SAMPLE) return { value: medOf(kT), basis: "tipo", sample: groups[kT].length };
+    if ((groups.all?.length ?? 0) > 0) return { value: medOf("all"), basis: "cidade", sample: groups.all.length };
+    return { value: null, basis: null, sample: 0 };
+  }
+
   const results = listings.map((d) => {
     // praia
     let beach = 0;
@@ -166,17 +213,50 @@ export function scoreListings(
       area = 100 * ((d.area_total_m2 - minA) / (maxA - minA));
     }
 
-    const factors = { beach, poi, pricePerM2, geoQuality, area };
+    // ── "oferta" (deal): preço vs. preço justo do grupo comparável ──
+    const pm2 =
+      d.price && d.area_total_m2 && d.area_total_m2 > 0 ? d.price / d.area_total_m2 : null;
+    const exp = expectedPm2Of(d);
+    const expectedPm2 = exp.value;
+    const discountPct =
+      pm2 != null && expectedPm2 != null && expectedPm2 > 0
+        ? (expectedPm2 - pm2) / expectedPm2
+        : null;
+    // 50 = neutro (no preço esperado); −20% do esperado → 100; +20% → 0
+    const deal = discountPct != null ? clamp(50 + discountPct * 250) : 50;
+    const fairPrice =
+      expectedPm2 != null && d.area_total_m2 && d.area_total_m2 > 0
+        ? Math.round(expectedPm2 * d.area_total_m2)
+        : null;
+
+    // confiança do dado (NÃO é mérito — vira selo): geo + completude
+    let confidence = GEO_SCORE[d.geo_method ?? "fallback"] ?? 10;
+    if (!d.price) confidence -= 25;
+    if (!d.area_total_m2) confidence -= 20;
+    confidence = clamp(confidence);
+
+    const insight: ListingInsight = {
+      pm2: pm2 != null ? Math.round(pm2) : null,
+      expectedPm2: expectedPm2 != null ? Math.round(expectedPm2) : null,
+      fairPrice,
+      discountPct,
+      basis: exp.basis,
+      sample: exp.sample,
+      confidence,
+    };
+
+    const factors = { beach, poi, pricePerM2, geoQuality, area, deal };
     const score = Math.round(
       (beach * w.beach +
         poi * w.poi +
         pricePerM2 * w.pricePerM2 +
         geoQuality * w.geoQuality +
-        area * w.area) /
+        area * w.area +
+        deal * w.deal) /
         100,
     );
 
-    return { id: d.id, score, factors };
+    return { id: d.id, score, factors, insight };
   });
 
   return results.sort((a, b) => b.score - a.score);

@@ -140,6 +140,8 @@ const TOOLS: Tool[] = [
     info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
   { href: "/admin/auditoria", icon: "✅", name: "Auditoria por IA", desc: "Conferir e corrigir os dados",
     info: "A IA lê cada anúncio, compara com os dados salvos e corrige o que estiver errado (preço, área, tipo, quartos…). Revise um a um ou em lote; dá para só sugerir antes de aplicar." },
+  { href: "/admin/avaliacao", icon: "📊", name: "Como avaliamos", desc: "Entenda o ranking inteligente",
+    info: "Explica de onde vem a nota de cada imóvel: o preço justo por bairro, o fator de oferta, os comércios por perto, a praia e a confiança do dado. Bom para entender e explicar ao cliente." },
 ];
 
 function InfoDot({ text }: { text: string }) {
