@@ -7,7 +7,8 @@ export type ScoreFactor =
   | "poi"
   | "pricePerM2"
   | "geoQuality"
-  | "area";
+  | "area"
+  | "deal";
 
 export type Weights = Record<ScoreFactor, number>;
 
@@ -22,33 +23,34 @@ export const SCORE_PROFILES: ScoreProfile[] = [
   {
     id: "investidor",
     label: "📈 Investidor",
-    desc: "Valorização e área grande",
-    weights: { beach: 40, poi: 15, pricePerM2: 15, geoQuality: 5, area: 25 },
+    desc: "Oferta abaixo do mercado + praia e área",
+    weights: { beach: 18, poi: 10, pricePerM2: 10, geoQuality: 5, area: 15, deal: 42 },
   },
   {
     id: "moradia",
     label: "🏠 Moradia",
-    desc: "Infraestrutura e conveniência",
-    weights: { beach: 15, poi: 40, pricePerM2: 25, geoQuality: 10, area: 10 },
+    desc: "Infraestrutura, conveniência e bom preço",
+    weights: { beach: 12, poi: 38, pricePerM2: 10, geoQuality: 8, area: 10, deal: 22 },
   },
   {
     id: "menor_custo",
     label: "💰 Menor custo",
     desc: "Prioriza menor preço por m²",
-    weights: { beach: 10, poi: 25, pricePerM2: 55, geoQuality: 5, area: 5 },
+    weights: { beach: 8, poi: 20, pricePerM2: 42, geoQuality: 5, area: 5, deal: 20 },
   },
   {
     id: "custo_beneficio",
     label: "⚖️ Custo-benefício",
-    desc: "Equilíbrio entre todos os fatores",
-    weights: { beach: 25, poi: 25, pricePerM2: 30, geoQuality: 10, area: 10 },
+    desc: "Equilíbrio entre oferta, infra e preço",
+    weights: { beach: 16, poi: 22, pricePerM2: 16, geoQuality: 8, area: 8, deal: 30 },
   },
 ];
 
 export const DEFAULT_WEIGHTS: Weights = {
-  beach: 35,
-  poi: 25,
-  pricePerM2: 25,
-  geoQuality: 8,
+  beach: 22,
+  poi: 22,
+  pricePerM2: 16,
+  geoQuality: 6,
   area: 7,
+  deal: 27,
 };
