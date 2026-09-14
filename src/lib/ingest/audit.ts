@@ -3,9 +3,11 @@
 // campo, se está "ok" ou se deve "corrigir" (com o valor certo e a confiança).
 // Reaproveita o Anthropic SDK, igual à extração.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { llmComplete } from "./llm";
 
 // Modelo do auditor: AUDIT_MODEL > EXTRACTION_MODEL > opus-5.
+// Pode ser Claude ("claude-*") ou OpenAI ("gpt-5-nano" etc.) — o adapter
+// (llm.ts) escolhe o provedor pelo id do modelo.
 function currentAuditModel(): string {
   return process.env.AUDIT_MODEL || process.env.EXTRACTION_MODEL || "claude-opus-5";
 }
@@ -45,14 +47,20 @@ Regras:
 - Nunca invente. Se o anúncio não fala do campo, "status":"ok" e "value": o valor salvo.
 - "confidence" reflete quão claro está no anúncio (1 = explícito; 0.5 = indício fraco).`;
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) client = new Anthropic();
-  return client;
-}
-
-function stripFences(s: string): string {
-  return s.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+// Extrai o array JSON da resposta, tolerando cercas de código ou texto ao
+// redor (modelos baratos às vezes "conversam" antes do JSON).
+function parseVerdicts(raw: string): unknown {
+  const s = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  try {
+    return JSON.parse(s);
+  } catch {
+    const a = s.indexOf("[");
+    const b = s.lastIndexOf("]");
+    if (a >= 0 && b > a) {
+      try { return JSON.parse(s.slice(a, b + 1)); } catch { /* desiste */ }
+    }
+    return null;
+  }
 }
 
 /** Confere os campos salvos contra o texto do anúncio. */
@@ -65,41 +73,28 @@ export async function auditListing(
     Object.fromEntries(AUDIT_FIELDS.map((f) => [f, current[f] ?? null])),
   );
 
-  const msg = await getClient().messages.create({
+  const res = await llmComplete({
     model,
-    max_tokens: 1500,
     system: SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content:
-          `CAMPOS SALVOS:\n${fieldsJson}\n\n` +
-          `TEXTO DO ANÚNCIO:\n${adText.slice(0, 14_000)}`,
-      },
-    ],
+    maxTokens: 1500,
+    user:
+      `CAMPOS SALVOS:\n${fieldsJson}\n\n` +
+      `TEXTO DO ANÚNCIO:\n${adText.slice(0, 14_000)}`,
   });
 
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  let verdicts: FieldVerdict[] = [];
-  try {
-    const parsed = JSON.parse(stripFences(text)) as FieldVerdict[];
-    const allowed = new Set<string>(AUDIT_FIELDS);
-    verdicts = (Array.isArray(parsed) ? parsed : []).filter(
-      (v) => v && allowed.has(v.field) && (v.status === "ok" || v.status === "fix"),
-    );
-  } catch {
-    verdicts = [];
-  }
+  const parsed = parseVerdicts(res.text);
+  const allowed = new Set<string>(AUDIT_FIELDS);
+  const verdicts: FieldVerdict[] = (Array.isArray(parsed) ? parsed : []).filter(
+    (v): v is FieldVerdict =>
+      !!v && allowed.has((v as FieldVerdict).field) &&
+      ((v as FieldVerdict).status === "ok" || (v as FieldVerdict).status === "fix"),
+  );
 
   return {
     verdicts,
     notes: "",
     model,
-    inputTokens: msg.usage?.input_tokens ?? 0,
-    outputTokens: msg.usage?.output_tokens ?? 0,
+    inputTokens: res.inputTokens,
+    outputTokens: res.outputTokens,
   };
 }
