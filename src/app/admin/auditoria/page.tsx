@@ -18,12 +18,16 @@ const input: React.CSSProperties = {
 };
 
 interface Change { from: unknown; to: unknown }
+interface Verdict {
+  field: string; status: "ok" | "fix";
+  value: unknown; confidence: number; reason?: string;
+}
 interface Item {
   id: string; title: string | null; type: string | null; neighborhood: string | null;
   price: number | null; source_url?: string | null;
   reviewed: boolean; lastChanges: number; applied: boolean;
   // estado local durante a auditoria
-  busy?: boolean; changes?: Record<string, Change>; error?: string;
+  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; error?: string;
 }
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
@@ -33,7 +37,7 @@ type Filter = "todos" | "pendentes" | "revisados";
 export default function Auditoria() {
   const [token, setToken] = useState("");
   const [model, setModel] = useState("claude-haiku-4-5");
-  const [minConf, setMinConf] = useState(0.8);
+  const [minConf, setMinConf] = useState(0.7);
   const [apply, setApply] = useState(false);
 
   const [items, setItems] = useState<Item[]>([]);
@@ -77,9 +81,10 @@ export default function Auditoria() {
     try {
       const r = await post({ listingId: it.id, apply, minConfidence: minConf, model });
       const changes = (r.changes as Record<string, Change>) ?? {};
+      const verdicts = (r.verdicts as Verdict[]) ?? [];
       setCost((c) => c + ((r.estimatedCostUSD as number) || 0));
       setItems((xs) => xs.map((x) => x.id === it.id
-        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes }
+        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts }
         : x));
       return true;
     } catch (e) {
@@ -254,6 +259,33 @@ export default function Auditoria() {
                         ))}
                       </div>
                     )}
+                    {/* o que a IA achou (inclui "fix" abaixo do limiar de confiança) */}
+                    {x.reviewed && x.verdicts && (() => {
+                      const checked = x.verdicts.length;
+                      const changeKeys = new Set(Object.keys(x.changes ?? {}));
+                      const weak = x.verdicts.filter((v) => v.status === "fix" && !changeKeys.has(v.field));
+                      const anyFix = x.verdicts.some((v) => v.status === "fix");
+                      return (
+                        <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>
+                          {checked > 0
+                            ? `IA conferiu ${checked} campo(s)${!anyFix ? " · sem divergências" : ""}`
+                            : "IA não retornou veredicto (resposta vazia ou fora do formato)"}
+                          {weak.length > 0 && (
+                            <div style={{ marginTop: 3, display: "grid", gap: 2 }}>
+                              {weak.map((v) => (
+                                <div key={v.field} style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                                  <span style={{ minWidth: 88 }}>{v.field}</span>
+                                  <span>→ <b>{fmt(v.value)}</b></span>
+                                  <span style={{ opacity: 0.85 }}>
+                                    conf {Math.round((v.confidence ?? 0) * 100)}% · abaixo do limiar ({Math.round(minConf * 100)}%)
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {x.error && <div style={{ fontSize: 12, color: "var(--warn)" }}>⚠️ {x.error}</div>}
                   </div>
                   {/* selo */}
