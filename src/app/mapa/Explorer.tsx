@@ -16,6 +16,7 @@ import {
   type ScoreFactor,
 } from "@/lib/scoring/profiles";
 import { ITAPOA_COASTLINE } from "@/lib/scoring/coastline";
+import { buildReasons } from "@/lib/scoring/reasons";
 
 export interface Listing {
   id: string;
@@ -702,23 +703,11 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                 if (!info) return null;
                 const ins = info.insight;
                 const profLabel = SCORE_PROFILES.find((p) => p.id === profile)?.label ?? "Personalizado";
-                const reasons: string[] = [];
-                if (ins.discountPct != null) {
-                  const pct = Math.round(Math.abs(ins.discountPct) * 100);
-                  const base = ins.basis === "bairro" ? "do bairro" : ins.basis === "tipo" ? "do tipo" : "da cidade";
-                  if (ins.discountPct > 0.03) reasons.push(`${pct}% abaixo do R$/m² médio ${base}`);
-                  else if (ins.discountPct < -0.03) reasons.push(`${pct}% acima do R$/m² médio ${base}`);
-                  else reasons.push(`no R$/m² médio ${base}`);
-                }
-                const nb = neighborhood(selectedListing);
-                if (nb) {
-                  const top = Object.entries(nb.counts).sort((a, b) => b[1] - a[1])[0];
-                  if (top) reasons.push(`${top[1]} ${POI_LABEL[top[0]] ?? top[0]} num raio de 1,2 km`);
-                }
-                if (selectedListing.lat != null && selectedListing.lng != null && ITAPOA_COASTLINE.length) {
-                  const bd = Math.min(...ITAPOA_COASTLINE.map((c) => haversine(selectedListing.lat!, selectedListing.lng!, c[0], c[1])));
-                  if (bd < 1500) reasons.push(`praia a ~${bd < 1000 ? Math.round(bd) + " m" : (bd / 1000).toFixed(1) + " km"}`);
-                }
+                const reasons = buildReasons({
+                  lat: selectedListing.lat, lng: selectedListing.lng, insight: ins,
+                  pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
+                  coastline: ITAPOA_COASTLINE,
+                });
                 return (
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--accent-weak)", border: "1px solid var(--border)" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
