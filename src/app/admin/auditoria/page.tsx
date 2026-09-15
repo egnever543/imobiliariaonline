@@ -27,10 +27,27 @@ interface Item {
   price: number | null; source_url?: string | null;
   reviewed: boolean; lastChanges: number; applied: boolean;
   // estado local durante a auditoria
-  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; error?: string;
+  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; error?: string;
 }
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
+
+// campos de texto que dá para auditar (marque só o que quiser conferir)
+const AUDIT_FIELD_LABELS: { k: string; label: string }[] = [
+  { k: "price", label: "Preço" }, { k: "area_total_m2", label: "Área" }, { k: "type", label: "Tipo" },
+  { k: "bedrooms", label: "Quartos" }, { k: "bathrooms", label: "Banheiros" }, { k: "suites", label: "Suítes" },
+  { k: "parking", label: "Vagas" }, { k: "neighborhood", label: "Bairro" },
+  { k: "is_launch", label: "Lançamento" }, { k: "accepts_permuta", label: "Permuta" },
+];
+const ALL_FIELD_KEYS = AUDIT_FIELD_LABELS.map((f) => f.k);
+// chaves de coordenada exibidas via bloco de localização (não na lista crua)
+const GEO_KEYS = new Set(["lat", "lng", "geo_method"]);
+interface GeoInfo {
+  distanceM: number | null;
+  to: { lat: number; lng: number };
+  method: string;
+  address: { street: string | null; street_number: string | null; neighborhood: string | null; cep: string | null };
+}
 
 type Filter = "todos" | "pendentes" | "revisados" | "sugestoes";
 
@@ -40,6 +57,10 @@ export default function Auditoria() {
   const [minConf, setMinConf] = useState(0.7);
   const [apply, setApply] = useState(false);
   const [applyingAll, setApplyingAll] = useState(false);
+  // o que auditar: campos de texto marcados + localização (com limite de desvio)
+  const [selFields, setSelFields] = useState<Set<string>>(new Set(ALL_FIELD_KEYS));
+  const [checkGeo, setCheckGeo] = useState(false);
+  const [geoThreshold, setGeoThreshold] = useState(300);
 
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<Filter>("pendentes");
@@ -79,16 +100,25 @@ export default function Auditoria() {
     } finally { setLoading(false); }
   }, [post]);
 
+  function toggleField(k: string) {
+    setSelFields((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  }
+
   // audita 1 imóvel e atualiza sua linha
   async function auditOne(it: Item) {
+    if (selFields.size === 0 && !checkGeo) { setMsg("Selecione ao menos um campo para auditar."); return false; }
     setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: true, error: undefined } : x)));
     try {
-      const r = await post({ listingId: it.id, apply, minConfidence: minConf, model });
+      const r = await post({
+        listingId: it.id, apply, minConfidence: minConf, model,
+        fields: [...selFields], checkGeo, geoThresholdM: geoThreshold,
+      });
       const changes = (r.changes as Record<string, Change>) ?? {};
       const verdicts = (r.verdicts as Verdict[]) ?? [];
+      const geoInfo = (r.geoInfo as GeoInfo | null) ?? null;
       setCost((c) => c + ((r.estimatedCostUSD as number) || 0));
       setItems((xs) => xs.map((x) => x.id === it.id
-        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts }
+        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo }
         : x));
       return true;
     } catch (e) {
@@ -155,6 +185,14 @@ export default function Auditoria() {
     border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
     background: on ? "var(--accent)" : "var(--paper)", color: on ? "#fff" : "var(--muted)",
   });
+  const chipBtn = (on: boolean): React.CSSProperties => ({
+    padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+    background: on ? "var(--accent)" : "var(--paper)", color: on ? "#fff" : "var(--muted)",
+  });
+  const linkBtn: React.CSSProperties = {
+    background: "transparent", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0,
+  };
 
   return (
     <>
@@ -193,6 +231,30 @@ export default function Auditoria() {
           <button className="btn btn-ghost" onClick={load} disabled={loading || !token} style={{ paddingBottom: 8 }}>
             {loading ? "…" : items.length ? "Recarregar" : "Carregar imóveis"}
           </button>
+        </div>
+
+        {/* O que auditar (menos campos = menos tokens) */}
+        <div style={{ ...box, marginTop: 10, padding: "12px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+            <strong style={{ fontSize: 13 }}>O que auditar</strong>
+            <button style={linkBtn} onClick={() => setSelFields(new Set(ALL_FIELD_KEYS))}>todos</button>
+            <button style={linkBtn} onClick={() => setSelFields(new Set())}>nenhum</button>
+            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>marque só o necessário — menos campos, menos tokens</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {AUDIT_FIELD_LABELS.map((f) => (
+              <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
+            ))}
+            <span style={{ width: 1, height: 20, background: "var(--border)", margin: "0 2px" }} />
+            <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Localização</button>
+            {checkGeo && (
+              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
+                desvio &gt;
+                <input type="number" min={50} step={50} value={geoThreshold}
+                  onChange={(e) => setGeoThreshold(Number(e.target.value) || 300)} style={{ ...input, width: 76 }} /> m
+              </span>
+            )}
+          </div>
         </div>
 
         {msg && <p style={{ marginTop: 12, fontSize: 13.5, color: "var(--muted)" }}>{msg}</p>}
@@ -269,10 +331,10 @@ export default function Auditoria() {
                         ver no mapa ↗
                       </a>
                     </div>
-                    {/* correções da última auditoria (sessão atual) */}
-                    {x.changes && Object.keys(x.changes).length > 0 && (
+                    {/* correções da última auditoria (sessão atual) — sem as coordenadas cruas */}
+                    {x.changes && Object.keys(x.changes).some((f) => !GEO_KEYS.has(f)) && (
                       <div style={{ marginTop: 4, display: "grid", gap: 2 }}>
-                        {Object.entries(x.changes).map(([f, c]) => (
+                        {Object.entries(x.changes).filter(([f]) => !GEO_KEYS.has(f)).map(([f, c]) => (
                           <div key={f} style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline" }}>
                             <span style={{ minWidth: 92, color: "var(--muted)" }}>{f}</span>
                             <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(c.from)}</span>
@@ -281,6 +343,25 @@ export default function Auditoria() {
                           </div>
                         ))}
                       </div>
+                    )}
+                    {/* localização: desvio detectado e novo ponto */}
+                    {x.changes && x.changes.lat && x.geoInfo && (
+                      <div style={{ marginTop: 4, fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>📍 localização</span>
+                        <span style={{ color: "var(--muted)" }}>
+                          {x.geoInfo.distanceM != null
+                            ? `desvio de ${x.geoInfo.distanceM >= 1000 ? (x.geoInfo.distanceM / 1000).toFixed(1) + " km" : Math.round(x.geoInfo.distanceM) + " m"} → novo ponto`
+                            : "sem ponto salvo → novo ponto"}
+                        </span>
+                        <a href={`https://www.google.com/maps?q=${x.geoInfo.to.lat},${x.geoInfo.to.lng}`} target="_blank" rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()} style={{ fontSize: 11.5, fontWeight: 600 }}>ver ponto ↗</a>
+                        {[x.geoInfo.address.street, x.geoInfo.address.neighborhood].filter(Boolean).length > 0 && (
+                          <span style={{ color: "var(--muted)" }}>· {[x.geoInfo.address.street, x.geoInfo.address.neighborhood].filter(Boolean).join(", ")}</span>
+                        )}
+                      </div>
+                    )}
+                    {x.reviewed && checkGeo && x.geoInfo === null && (!x.changes || !x.changes.lat) && (
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>📍 localização confere (ou sem endereço no anúncio)</div>
                     )}
                     {/* o que a IA achou (inclui "fix" abaixo do limiar de confiança) */}
                     {x.reviewed && x.verdicts && (() => {

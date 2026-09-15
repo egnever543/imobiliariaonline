@@ -63,14 +63,17 @@ function parseVerdicts(raw: string): unknown {
   }
 }
 
-/** Confere os campos salvos contra o texto do anúncio. */
+/** Confere os campos salvos contra o texto do anúncio.
+ *  `fields` limita quais campos conferir (menos campos = menos tokens). */
 export async function auditListing(
   adText: string,
   current: Record<string, unknown>,
+  fields: readonly AuditField[] = AUDIT_FIELDS,
 ): Promise<AuditResult> {
   const model = currentAuditModel();
+  const use = fields.length ? fields : AUDIT_FIELDS;
   const fieldsJson = JSON.stringify(
-    Object.fromEntries(AUDIT_FIELDS.map((f) => [f, current[f] ?? null])),
+    Object.fromEntries(use.map((f) => [f, current[f] ?? null])),
   );
 
   const res = await llmComplete({
