@@ -25,7 +25,7 @@ interface Verdict {
 interface Item {
   id: string; title: string | null; type: string | null; neighborhood: string | null;
   price: number | null; source_url?: string | null;
-  reviewed: boolean; lastChanges: number; applied: boolean;
+  reviewed: boolean; lastChanges: number; applied: boolean; lastAt?: string | null;
   // estado local durante a auditoria
   busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; error?: string;
 }
@@ -49,7 +49,20 @@ interface GeoInfo {
   address: { street: string | null; street_number: string | null; neighborhood: string | null; cep: string | null };
 }
 
-type Filter = "todos" | "pendentes" | "revisados" | "sugestoes";
+type Filter = "todos" | "pendentes" | "revisados" | "sugestoes" | "desde";
+
+// "hoje 00:00" no formato do input datetime-local (aaaa-mm-ddThh:mm)
+function startOfTodayLocal(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const fmtWhen = (iso?: string | null) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
 
 export default function Auditoria() {
   const [token, setToken] = useState("");
@@ -64,6 +77,7 @@ export default function Auditoria() {
 
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<Filter>("pendentes");
+  const [cutoff, setCutoff] = useState<string>(startOfTodayLocal()); // "desde": auditados antes disto
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -118,7 +132,7 @@ export default function Auditoria() {
       const geoInfo = (r.geoInfo as GeoInfo | null) ?? null;
       setCost((c) => c + ((r.estimatedCostUSD as number) || 0));
       setItems((xs) => xs.map((x) => x.id === it.id
-        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo }
+        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo, lastAt: new Date().toISOString() }
         : x));
       return true;
     } catch (e) {
@@ -169,10 +183,14 @@ export default function Auditoria() {
 
   const withSuggestion = (x: Item) => x.reviewed && !x.applied && (x.lastChanges > 0 || (x.changes && Object.keys(x.changes).length > 0));
   const suggestionCount = items.filter(withSuggestion).length;
+  const cutoffMs = cutoff ? new Date(cutoff).getTime() : NaN;
+  const isStale = (x: Item) => !x.lastAt || (Number.isFinite(cutoffMs) && new Date(x.lastAt).getTime() < cutoffMs);
+  const staleCount = items.filter(isStale).length;
   const shown = items.filter((x) => {
     if (filter === "pendentes" && x.reviewed) return false;
     if (filter === "revisados" && !x.reviewed) return false;
     if (filter === "sugestoes" && !withSuggestion(x)) return false;
+    if (filter === "desde" && !isStale(x)) return false;
     if (q) {
       const s = (x.title ?? "") + " " + (x.neighborhood ?? "") + " " + (x.type ?? "");
       if (!s.toLowerCase().includes(q.toLowerCase())) return false;
@@ -268,8 +286,15 @@ export default function Auditoria() {
                 <button style={seg(filter === "pendentes")} onClick={() => setFilter("pendentes")}>Não revisados ({pending})</button>
                 <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
                 <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
+                <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Desde ({staleCount})</button>
                 <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
               </div>
+              {filter === "desde" && (
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
+                  não auditados desde
+                  <input type="datetime-local" value={cutoff} onChange={(e) => setCutoff(e.target.value)} style={{ ...input }} />
+                </span>
+              )}
               <input style={{ ...input, flex: 1, minWidth: 140 }} placeholder="buscar por título/bairro…" value={q} onChange={(e) => setQ(e.target.value)} />
               {filter === "sugestoes" && !batch && (
                 <button className="btn" onClick={applyAll}
@@ -324,6 +349,7 @@ export default function Auditoria() {
                     </div>
                     <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
                       <span>{[x.type, x.neighborhood, money(x.price)].filter(Boolean).join(" · ")}</span>
+                      {x.lastAt && <span style={{ opacity: 0.85 }}>· auditado {fmtWhen(x.lastAt)}</span>}
                       {x.source_url && (
                         <a href={x.source_url} target="_blank" rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}

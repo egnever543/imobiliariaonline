@@ -62,6 +62,7 @@ async function handle(req: Request) {
         source_url: l.source_url,
         reviewed: !!rev,
         lastChanges: nChanges,
+        lastAt: rev?.at ?? null, // data da última auditoria (para reauditar por data)
         applied: rev?.applied ?? false,
         // sugestões ainda não aplicadas → permitem o botão "Aplicar" mesmo
         // depois de recarregar a página.
