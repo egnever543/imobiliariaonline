@@ -9,10 +9,15 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/paginate";
 import { fetchReadable } from "@/lib/ingest/jina";
 import { estimateCostUSD } from "@/lib/ingest/cost";
-import { auditListing, AUDIT_FIELDS, type FieldVerdict } from "@/lib/ingest/audit";
+import { auditListing, AUDIT_FIELDS, type AuditField, type FieldVerdict } from "@/lib/ingest/audit";
+import { auditGeo } from "@/lib/ingest/geoaudit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+// campos que a auditoria pode gravar ao aplicar: os de texto + os de localização
+const GEO_APPLY = ["lat", "lng", "geo_method", "street", "street_number", "neighborhood", "cep"] as const;
+const APPLY_ALLOWED = new Set<string>([...AUDIT_FIELDS, ...GEO_APPLY]);
 
 export async function POST(req: Request) {
   try {
@@ -74,9 +79,8 @@ async function handle(req: Request) {
   // 1b) aplicar sugestões já calculadas (sem nova chamada de IA)
   if (body?.applyChanges) {
     const changes = (body.applyChanges as Record<string, { from: unknown; to: unknown }>) ?? {};
-    const allowed = new Set<string>(AUDIT_FIELDS);
     const patch: Record<string, unknown> = {};
-    for (const [f, c] of Object.entries(changes)) if (allowed.has(f)) patch[f] = c.to;
+    for (const [f, c] of Object.entries(changes)) if (APPLY_ALLOWED.has(f)) patch[f] = c.to;
     if (!Object.keys(patch).length) {
       return Response.json({ ok: true, applied: false, id: body.listingId });
     }
@@ -93,8 +97,21 @@ async function handle(req: Request) {
   const minConf = typeof body.minConfidence === "number" ? body.minConfidence : 0.75;
   const apply = body.apply === true;
 
-  // 2) carrega o imóvel
-  const cols = ["id", "title", "source_url", ...AUDIT_FIELDS].join(",");
+  // quais campos conferir (menos campos = menos tokens) + localização
+  const reqFields = Array.isArray(body.fields)
+    ? (body.fields as string[]).filter((f): f is AuditField => (AUDIT_FIELDS as readonly string[]).includes(f))
+    : AUDIT_FIELDS;
+  const checkGeo = body.checkGeo === true;
+  const geoThresholdM = typeof body.geoThresholdM === "number" ? body.geoThresholdM : 300;
+  if (!reqFields.length && !checkGeo) {
+    return Response.json({ error: "Selecione ao menos um campo para auditar." }, { status: 400 });
+  }
+
+  // 2) carrega o imóvel (campos de texto + endereço + cidade para geocodificar)
+  const cols = [
+    "id", "title", "source_url", ...AUDIT_FIELDS,
+    "street", "street_number", "cep", "lat", "lng", "geo_method", "cities(name,state)",
+  ].join(",");
   const { data: row, error: rowErr } = await db
     .from("listings")
     .select(cols)
@@ -104,8 +121,10 @@ async function handle(req: Request) {
   if (!row) return Response.json({ error: "Imóvel não encontrado." }, { status: 404 });
 
   const listing = row as unknown as Record<string, unknown> & { source_url: string; title: string | null };
+  const cityRel = (listing as { cities?: { name?: string; state?: string } | { name?: string; state?: string }[] }).cities;
+  const city = Array.isArray(cityRel) ? cityRel[0] : cityRel;
 
-  // 3) lê o anúncio
+  // 3) lê o anúncio (uma vez, serve para texto e localização)
   let adText = "";
   try {
     adText = await fetchReadable(listing.source_url, { timeoutMs: 25_000 });
@@ -116,54 +135,58 @@ async function handle(req: Request) {
     );
   }
 
-  // 4) audita
-  const res = await auditListing(adText, listing);
-  const costUSD = estimateCostUSD(res.model, res.inputTokens, res.outputTokens);
-
-  // 5) monta as correções (só fix com confiança suficiente e valor diferente)
   const changes: Record<string, { from: unknown; to: unknown }> = {};
-  for (const v of res.verdicts as FieldVerdict[]) {
-    if (v.status !== "fix") continue;
-    if ((v.confidence ?? 0) < minConf) continue;
-    const cur = listing[v.field] ?? null;
-    if (JSON.stringify(cur) === JSON.stringify(v.value)) continue;
-    changes[v.field] = { from: cur, to: v.value };
+  let verdicts: FieldVerdict[] = [];
+  let model = body.model || process.env.AUDIT_MODEL || "";
+  let inTok = 0, outTok = 0;
+
+  // 4) audita os campos de texto selecionados
+  if (reqFields.length) {
+    const res = await auditListing(adText, listing, reqFields);
+    verdicts = res.verdicts as FieldVerdict[];
+    model = res.model; inTok += res.inputTokens; outTok += res.outputTokens;
+    for (const v of verdicts) {
+      if (v.status !== "fix") continue;
+      if ((v.confidence ?? 0) < minConf) continue;
+      const cur = listing[v.field] ?? null;
+      if (JSON.stringify(cur) === JSON.stringify(v.value)) continue;
+      changes[v.field] = { from: cur, to: v.value };
+    }
   }
 
-  // 6) aplica, se pedido
+  // 4b) audita a localização (IA extrai endereço → geocodifica → compara)
+  let geoInfo: Awaited<ReturnType<typeof auditGeo>>["info"] = null;
+  if (checkGeo) {
+    const g = await auditGeo({
+      adText, current: listing, cityName: city?.name ?? null, state: city?.state ?? null, thresholdM: geoThresholdM,
+    });
+    model = g.model; inTok += g.inputTokens; outTok += g.outputTokens;
+    geoInfo = g.info;
+    Object.assign(changes, g.changes);
+  }
+
+  const costUSD = estimateCostUSD(model, inTok, outTok);
+
+  // 5) aplica, se pedido
   let applied = false;
   if (apply && Object.keys(changes).length) {
     const patch: Record<string, unknown> = {};
-    for (const [f, c] of Object.entries(changes)) patch[f] = c.to;
+    for (const [f, c] of Object.entries(changes)) if (APPLY_ALLOWED.has(f)) patch[f] = c.to;
     const { error: upErr } = await db.from("listings").update(patch).eq("id", listing.id);
     if (upErr) return Response.json({ error: upErr.message, id: listing.id }, { status: 500 });
     applied = true;
   }
 
-  // 7) registra a auditoria + o gasto (não falha a resposta)
+  // 6) registra a auditoria + o gasto (não falha a resposta)
   db.from("data_audits")
-    .insert({
-      listing_id: listing.id,
-      verdicts: res.verdicts,
-      changes,
-      applied,
-      model: res.model,
-      input_tokens: res.inputTokens,
-      output_tokens: res.outputTokens,
-      cost_usd: costUSD,
-    })
+    .insert({ listing_id: listing.id, verdicts, changes, applied, model, input_tokens: inTok, output_tokens: outTok, cost_usd: costUSD })
     .then(() => {}, () => {});
   db.from("usage_events")
-    .insert({ via: "audit", model: res.model, input_tokens: res.inputTokens, output_tokens: res.outputTokens, cost_usd: costUSD })
+    .insert({ via: "audit", model, input_tokens: inTok, output_tokens: outTok, cost_usd: costUSD })
     .then(() => {}, () => {});
 
   return Response.json({
-    id: listing.id,
-    title: listing.title,
-    verdicts: res.verdicts,
-    changes,
-    applied,
-    model: res.model,
-    estimatedCostUSD: costUSD,
+    id: listing.id, title: listing.title,
+    verdicts, changes, geoInfo, applied, model, estimatedCostUSD: costUSD,
   });
 }
