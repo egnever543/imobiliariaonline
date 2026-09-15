@@ -19,6 +19,20 @@ async function loadPois(): Promise<Poi[]> {
   }
 }
 
+async function loadCoastline(): Promise<[number, number][][]> {
+  try {
+    const db = getServiceClient();
+    const { data } = await db.from("city_coastlines").select("ways");
+    const ways: [number, number][][] = [];
+    for (const row of (data ?? []) as { ways?: [number, number][][] }[]) {
+      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) ways.push(w);
+    }
+    return ways;
+  } catch {
+    return [];
+  }
+}
+
 async function loadItems(): Promise<Item[]> {
   try {
     const db = getServiceClient();
@@ -45,6 +59,6 @@ async function loadItems(): Promise<Item[]> {
 }
 
 export default async function AnalisePage() {
-  const [items, pois] = await Promise.all([loadItems(), loadPois()]);
-  return <Analise items={items} pois={pois} />;
+  const [items, pois, coastline] = await Promise.all([loadItems(), loadPois(), loadCoastline()]);
+  return <Analise items={items} pois={pois} coastline={coastline} />;
 }

@@ -109,15 +109,16 @@ export function overpassQuery(b: {
   return `[out:json][timeout:25];\n(\n  ${sel}\n);\nout center tags;`;
 }
 
-interface OverpassEl {
+export interface OverpassEl {
   type: string;
   id: number;
   lat?: number; lon?: number;
   center?: { lat: number; lon: number };
+  geometry?: { lat: number; lon: number }[]; // ways com "out geom"
   tags?: Record<string, string>;
 }
 
-async function overpassFetch(query: string, timeoutMs = 18_000): Promise<{ elements?: OverpassEl[] }> {
+export async function overpassFetch(query: string, timeoutMs = 18_000): Promise<{ elements?: OverpassEl[] }> {
   let lastErr = "";
   for (const url of OVERPASS_MIRRORS) {
     try {

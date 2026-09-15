@@ -34,9 +34,38 @@ export interface Poi {
 
 export interface ScoreConfig {
   weights?: Weights;
-  /** Linha de costa da cidade (opcional), para o fator "praia". */
-  coastline?: [number, number][];
+  /** Linha de costa da cidade: lista de polilinhas [[lat,lng],...]. */
+  coastline?: [number, number][][];
   pois?: Poi[];
+}
+
+// Distância (m) de um ponto até a linha de costa — até o SEGMENTO mais próximo
+// (não só ao vértice), o que dá precisão mesmo com pontos espaçados. Usa
+// projeção equirretangular local (boa em escala de cidade). null se sem costa.
+export function coastlineDistanceM(
+  lat: number,
+  lng: number,
+  coastline: [number, number][][] | undefined,
+): number | null {
+  if (!coastline?.length) return null;
+  const mLat = 111_320;
+  const mLng = 111_320 * Math.cos((lat * Math.PI) / 180);
+  const px = lng * mLng, py = lat * mLat;
+  let min = Infinity;
+  for (const way of coastline) {
+    for (let i = 1; i < way.length; i++) {
+      const ax = way[i - 1][1] * mLng, ay = way[i - 1][0] * mLat;
+      const bx = way[i][1] * mLng, by = way[i][0] * mLat;
+      const dx = bx - ax, dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const cx = ax + t * dx, cy = ay + t * dy;
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < min) min = d;
+    }
+  }
+  return Number.isFinite(min) ? min : null;
 }
 
 export interface ScoredListing {
@@ -168,13 +197,11 @@ export function scoreListings(
   }
 
   const results = listings.map((d) => {
-    // praia
+    // praia: distância até o segmento de costa mais próximo (satura em 5 km)
     let beach = 0;
     if (d.lat != null && d.lng != null && coastline.length) {
-      const dist = Math.min(
-        ...coastline.map((c) => haversine(d.lat!, d.lng!, c[0], c[1])),
-      );
-      beach = Math.max(0, Math.min(100, 100 * (1 - dist / 5000)));
+      const dist = coastlineDistanceM(d.lat, d.lng, coastline);
+      if (dist != null) beach = Math.max(0, Math.min(100, 100 * (1 - dist / 5000)));
     }
 
     // POIs

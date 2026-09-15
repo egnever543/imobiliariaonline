@@ -116,7 +116,9 @@ function Photo({
   );
 }
 
-export default function Explorer({ listings, pois = [] }: { listings: Listing[]; pois?: PoiPoint[] }) {
+export default function Explorer({ listings, pois = [], coastline }: { listings: Listing[]; pois?: PoiPoint[]; coastline?: [number, number][][] }) {
+  // costa coletada da cidade (OSM); cai na linha fixa se ainda não coletada
+  const coast = useMemo<[number, number][][]>(() => (coastline?.length ? coastline : [ITAPOA_COASTLINE]), [coastline]);
   const agencies = useMemo(
     () => [...new Set(listings.map((d) => d.agency))].sort(),
     [listings],
@@ -218,13 +220,13 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
     }));
     const res = scoreListings(scorable, {
       weights,
-      coastline: ITAPOA_COASTLINE,
+      coastline: coast,
       pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
     });
     const m: Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }> = {};
     res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors, insight: r.insight }));
     return m;
-  }, [scoreOn, filtered, weights, pois]);
+  }, [scoreOn, filtered, weights, pois, coast]);
 
   const visible = useMemo(() => {
     if (!scoreOn) return filtered;
@@ -706,7 +708,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                 const reasons = buildReasons({
                   lat: selectedListing.lat, lng: selectedListing.lng, insight: ins,
                   pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
-                  coastline: ITAPOA_COASTLINE,
+                  coastline: coast,
                 });
                 return (
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--accent-weak)", border: "1px solid var(--border)" }}>

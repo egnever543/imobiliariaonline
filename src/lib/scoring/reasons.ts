@@ -3,7 +3,7 @@
 // insight (preço justo), dos comércios por perto e da distância à praia.
 // Usado no mapa e na página de Análise, para não duplicar a lógica.
 
-import { haversine, type ListingInsight } from "./score";
+import { haversine, coastlineDistanceM, type ListingInsight } from "./score";
 
 const POI_LABEL: Record<string, string> = {
   escola: "escola", farmacia: "farmácia", supermercado: "mercado",
@@ -16,7 +16,7 @@ export interface ReasonInput {
   lng: number | null;
   insight: Pick<ListingInsight, "discountPct" | "basis">;
   pois?: { category: string; lat: number; lng: number }[];
-  coastline?: [number, number][];
+  coastline?: [number, number][][];
   radiusM?: number; // raio para contar comércios (padrão 1200 m)
 }
 
@@ -46,10 +46,10 @@ export function buildReasons(inp: ReasonInput): string[] {
     if (top) out.push(`${top[1]} ${POI_LABEL[top[0]] ?? top[0]} num raio de ${(R / 1000).toLocaleString("pt-BR")} km`);
   }
 
-  // 3) proximidade da praia
+  // 3) proximidade da praia (distância ao segmento de costa mais próximo)
   if (lat != null && lng != null && inp.coastline?.length) {
-    const bd = Math.min(...inp.coastline.map((c) => haversine(lat, lng, c[0], c[1])));
-    if (bd < 1500) out.push(`praia a ~${bd < 1000 ? Math.round(bd) + " m" : (bd / 1000).toFixed(1) + " km"}`);
+    const bd = coastlineDistanceM(lat, lng, inp.coastline);
+    if (bd != null && bd < 1500) out.push(`praia a ~${bd < 1000 ? Math.round(bd) + " m" : (bd / 1000).toFixed(1) + " km"}`);
   }
 
   return out.slice(0, 3);
