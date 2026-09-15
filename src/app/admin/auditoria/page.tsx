@@ -32,13 +32,14 @@ interface Item {
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
 
-type Filter = "todos" | "pendentes" | "revisados";
+type Filter = "todos" | "pendentes" | "revisados" | "sugestoes";
 
 export default function Auditoria() {
   const [token, setToken] = useState("");
   const [model, setModel] = useState("claude-haiku-4-5");
   const [minConf, setMinConf] = useState(0.7);
   const [apply, setApply] = useState(false);
+  const [applyingAll, setApplyingAll] = useState(false);
 
   const [items, setItems] = useState<Item[]>([]);
   const [filter, setFilter] = useState<Filter>("pendentes");
@@ -69,7 +70,10 @@ export default function Auditoria() {
     setLoading(true); setMsg("");
     try {
       const data = await post({ list: true });
-      setItems((data.listings as Item[]) ?? []);
+      const raw = (data.listings as (Item & { pendingChanges?: Record<string, Change> })[]) ?? [];
+      // traz as sugestões ainda não aplicadas para o botão "Aplicar" já
+      // aparecer sem precisar reauditar.
+      setItems(raw.map((l) => (l.pendingChanges ? { ...l, changes: l.pendingChanges } : l)));
     } catch (e) {
       setMsg("Erro: " + (e as Error).message);
     } finally { setLoading(false); }
@@ -105,6 +109,15 @@ export default function Auditoria() {
     }
   }
 
+  // aplica TODAS as sugestões visíveis (sem gastar IA)
+  async function applyAll() {
+    const targets = shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0);
+    if (!targets.length) return;
+    setApplyingAll(true);
+    for (const it of targets) await applyOne(it);
+    setApplyingAll(false);
+  }
+
   // lote: audita os pendentes (do filtro atual)
   async function runBatch() {
     const targets = shown.filter((x) => !x.reviewed);
@@ -123,9 +136,12 @@ export default function Auditoria() {
   const reviewed = items.filter((x) => x.reviewed).length;
   const pending = total - reviewed;
 
+  const withSuggestion = (x: Item) => x.reviewed && !x.applied && (x.lastChanges > 0 || (x.changes && Object.keys(x.changes).length > 0));
+  const suggestionCount = items.filter(withSuggestion).length;
   const shown = items.filter((x) => {
     if (filter === "pendentes" && x.reviewed) return false;
     if (filter === "revisados" && !x.reviewed) return false;
+    if (filter === "sugestoes" && !withSuggestion(x)) return false;
     if (q) {
       const s = (x.title ?? "") + " " + (x.neighborhood ?? "") + " " + (x.type ?? "");
       if (!s.toLowerCase().includes(q.toLowerCase())) return false;
@@ -187,10 +203,17 @@ export default function Auditoria() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 6 }}>
                 <button style={seg(filter === "pendentes")} onClick={() => setFilter("pendentes")}>Não revisados ({pending})</button>
+                <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
                 <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
                 <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
               </div>
               <input style={{ ...input, flex: 1, minWidth: 140 }} placeholder="buscar por título/bairro…" value={q} onChange={(e) => setQ(e.target.value)} />
+              {filter === "sugestoes" && !batch && (
+                <button className="btn" onClick={applyAll}
+                  disabled={applyingAll || !shown.some((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0)}>
+                  {applyingAll ? "Aplicando…" : `Aplicar ${shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0).length} sugestões`}
+                </button>
+              )}
               {!batch ? (
                 <button className="btn" onClick={runBatch} disabled={!shown.some((x) => !x.reviewed)}>
                   Revisar {shown.filter((x) => !x.reviewed).length} em lote

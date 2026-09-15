@@ -41,22 +41,26 @@ async function handle(req: Request) {
     const audits = await selectAll<{ listing_id: string; applied: boolean; changes: Record<string, unknown>; created_at: string }>(
       (from, to) => db.from("data_audits").select("listing_id,applied,changes,created_at").order("created_at", { ascending: false }).range(from, to),
     );
-    const last = new Map<string, { applied: boolean; changes: number; at: string }>();
+    const last = new Map<string, { applied: boolean; changes: Record<string, unknown>; at: string }>();
     for (const a of audits ?? []) {
       const lid = a.listing_id as string;
       if (last.has(lid)) continue; // já é a mais recente (ordenado desc)
       const changes = (a.changes as Record<string, unknown>) ?? {};
-      last.set(lid, { applied: !!a.applied, changes: Object.keys(changes).length, at: a.created_at as string });
+      last.set(lid, { applied: !!a.applied, changes, at: a.created_at as string });
     }
 
     const out = (listings ?? []).map((l) => {
       const rev = last.get(l.id as string);
+      const nChanges = rev ? Object.keys(rev.changes).length : 0;
       return {
         id: l.id, title: l.title, type: l.type, neighborhood: l.neighborhood, price: l.price,
         source_url: l.source_url,
         reviewed: !!rev,
-        lastChanges: rev?.changes ?? 0,
+        lastChanges: nChanges,
         applied: rev?.applied ?? false,
+        // sugestões ainda não aplicadas → permitem o botão "Aplicar" mesmo
+        // depois de recarregar a página.
+        pendingChanges: rev && !rev.applied && nChanges > 0 ? rev.changes : undefined,
       };
     });
     const reviewed = out.filter((l) => l.reviewed).length;
