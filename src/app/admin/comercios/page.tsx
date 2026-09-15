@@ -62,6 +62,27 @@ export default function Comercios() {
     } finally { setBusy(false); }
   }
 
+  // coleta a linha de costa (OSM) — alimenta o fator "praia" do ranking
+  async function collectCoast() {
+    setBusy(true); setMsg("");
+    try {
+      const res = await fetch("/api/coastline/collect", {
+        method: "POST", headers: headers(), body: JSON.stringify({ citySlug }),
+      });
+      const text = await res.text();
+      let data: Record<string, unknown> = {};
+      try { data = text ? JSON.parse(text) : {}; } catch { /* vazio/timeout */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status}`);
+      setMsg(
+        (data.points as number) > 0
+          ? `✅ Linha de costa coletada (${data.points} pontos em ${data.ways} trechos). O fator "praia" já usa isso.`
+          : "Nenhuma costa encontrada nessa área (cidade sem mar?).",
+      );
+    } catch (e) {
+      setMsg("Erro: " + (e as Error).message);
+    } finally { setBusy(false); }
+  }
+
   const usd = (v: number) => "US$ " + v.toFixed(v < 1 ? 4 : 2);
 
   return (
@@ -138,7 +159,7 @@ export default function Comercios() {
               </div>
             </>
           )}
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn btn-ghost" onClick={() => call(true)} disabled={busy || !token}>
               {busy ? "…" : "1. Estimar (grátis)"}
             </button>
@@ -146,7 +167,15 @@ export default function Comercios() {
               title={!est ? "Estime primeiro" : ""}>
               2. Coletar comércios
             </button>
+            <button className="btn btn-ghost" onClick={collectCoast} disabled={busy || !token}
+              title="Coleta o traçado do mar (OSM) desta cidade para o fator praia do ranking">
+              🌊 Coletar linha de costa
+            </button>
           </div>
+          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+            A linha de costa (grátis, OSM) alimenta o fator <strong>praia</strong> do ranking.
+            Rode uma vez por cidade — assim a distância do mar fica correta sem ajuste manual.
+          </p>
         </div>
 
         {est && (

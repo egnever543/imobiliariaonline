@@ -18,6 +18,22 @@ async function loadPois(): Promise<PoiPoint[]> {
   }
 }
 
+// Linha de costa coletada do OSM (todas as cidades, unidas). Vazio → o
+// componente usa a linha fixa como fallback.
+async function loadCoastline(): Promise<[number, number][][]> {
+  try {
+    const db = getServiceClient();
+    const { data } = await db.from("city_coastlines").select("ways");
+    const ways: [number, number][][] = [];
+    for (const row of (data ?? []) as { ways?: [number, number][][] }[]) {
+      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) ways.push(w);
+    }
+    return ways;
+  } catch {
+    return [];
+  }
+}
+
 async function loadListings(): Promise<Listing[]> {
   try {
     const db = getServiceClient();
@@ -52,6 +68,6 @@ async function loadListings(): Promise<Listing[]> {
 }
 
 export default async function Mapa() {
-  const [listings, pois] = await Promise.all([loadListings(), loadPois()]);
-  return <Explorer listings={listings} pois={pois} />;
+  const [listings, pois, coastline] = await Promise.all([loadListings(), loadPois(), loadCoastline()]);
+  return <Explorer listings={listings} pois={pois} coastline={coastline} />;
 }

@@ -78,7 +78,8 @@ function DiscountChip({ pct }: { pct: number | null }) {
 
 const TOP_N = 30;
 
-export default function Analise({ items, pois }: { items: Item[]; pois: Poi[] }) {
+export default function Analise({ items, pois, coastline }: { items: Item[]; pois: Poi[]; coastline?: [number, number][][] }) {
+  const coast = useMemo<[number, number][][]>(() => (coastline?.length ? coastline : [ITAPOA_COASTLINE]), [coastline]);
   const [obj, setObj] = useState("investidor");
   const [tipo, setTipo] = useState("");
   const [bairro, setBairro] = useState("");
@@ -108,12 +109,12 @@ export default function Analise({ items, pois }: { items: Item[]; pois: Poi[] })
       lat: i.lat, lng: i.lng, geo_method: i.geo_method,
       neighborhood: i.neighborhood, type: i.type,
     }));
-    const res = scoreListings(scorable, { weights: profile.weights, coastline: ITAPOA_COASTLINE, pois });
+    const res = scoreListings(scorable, { weights: profile.weights, coastline: coast, pois });
     const byId = new Map(filtered.map((i) => [i.id, i]));
     return res
       .map((r) => ({ item: byId.get(r.id)!, score: r.score, insight: r.insight }))
       .filter((x) => x.item);
-  }, [filtered, profile, pois]);
+  }, [filtered, profile, pois, coast]);
 
   const top = ranked.slice(0, TOP_N);
   const hero = top[0];
@@ -121,7 +122,7 @@ export default function Analise({ items, pois }: { items: Item[]; pois: Poi[] })
   const objMeta = OBJECTIVES.find((o) => o.id === obj)!;
 
   function reasonsFor(item: Item, insight: ListingInsight) {
-    return buildReasons({ lat: item.lat, lng: item.lng, insight, pois, coastline: ITAPOA_COASTLINE });
+    return buildReasons({ lat: item.lat, lng: item.lng, insight, pois, coastline: coast });
   }
 
   return (
