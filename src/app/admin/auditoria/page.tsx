@@ -148,10 +148,11 @@ export default function Auditoria() {
     setApplyingAll(false);
   }
 
-  // lote: audita os pendentes (do filtro atual)
+  // lote: em "pendentes" audita só os não revisados; nos outros filtros
+  // reaudita TODOS os visíveis (permite reconferir o que já foi auditado).
   async function runBatch() {
-    const targets = shown.filter((x) => !x.reviewed);
-    if (!targets.length) { setMsg("Nada pendente com esse filtro."); return; }
+    const targets = filter === "pendentes" ? shown.filter((x) => !x.reviewed) : shown;
+    if (!targets.length) { setMsg("Nada para auditar com esse filtro."); return; }
     abort.current = false; setBatch(true); setDone(0); setBatchTotal(targets.length); setCost(0);
     for (const it of targets) {
       if (abort.current) { setMsg("⏹ Interrompido."); break; }
@@ -277,9 +278,14 @@ export default function Auditoria() {
                 </button>
               )}
               {!batch ? (
-                <button className="btn" onClick={runBatch} disabled={!shown.some((x) => !x.reviewed)}>
-                  Revisar {shown.filter((x) => !x.reviewed).length} em lote
-                </button>
+                (() => {
+                  const n = filter === "pendentes" ? shown.filter((x) => !x.reviewed).length : shown.length;
+                  return (
+                    <button className="btn" onClick={runBatch} disabled={n === 0}>
+                      {filter === "pendentes" ? `Revisar ${n} em lote` : `Reauditar ${n} em lote`}
+                    </button>
+                  );
+                })()
               ) : (
                 <button className="btn" style={{ background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
               )}
