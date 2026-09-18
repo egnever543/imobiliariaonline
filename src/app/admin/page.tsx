@@ -165,7 +165,7 @@ export default async function AdminHub() {
     if (m.listings === 0) pend.push({ label: "Nenhum imóvel coletado ainda.", href: "/admin/coletar", cta: "Coletar", tone: "accent" });
     if (m.noGeo > 0) pend.push({ label: `${n(m.noGeo)} imóveis sem localização no mapa.`, href: "/admin/geo", cta: "Corrigir", tone: "warn" });
     if (m.listings > 0 && m.audited < m.listings) pend.push({ label: `${n(m.listings - m.audited)} imóveis ainda não revisados pela IA.`, href: "/admin/auditoria", cta: "Auditar", tone: "accent" });
-    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis sem preço.`, href: "/admin/auditoria", cta: "Revisar", tone: "warn" });
+    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis sem preço.`, href: "/admin/auditoria?falta=preco", cta: "Revisar", tone: "warn" });
     if (m.listings > 0 && m.pois === 0) pend.push({ label: "Comércios ainda não coletados (mapa de calor vazio).", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
   }
 

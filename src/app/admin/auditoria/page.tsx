@@ -24,7 +24,7 @@ interface Verdict {
 }
 interface Item {
   id: string; title: string | null; type: string | null; neighborhood: string | null;
-  price: number | null; source_url?: string | null;
+  price: number | null; lat?: number | null; source_url?: string | null;
   reviewed: boolean; lastChanges: number; applied: boolean; lastAt?: string | null;
   // estado local durante a auditoria
   busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; error?: string;
@@ -49,7 +49,7 @@ interface GeoInfo {
   address: { street: string | null; street_number: string | null; neighborhood: string | null; cep: string | null };
 }
 
-type Filter = "todos" | "pendentes" | "revisados" | "sugestoes" | "desde";
+type Filter = "todos" | "pendentes" | "revisados" | "sugestoes" | "desde" | "sem_preco" | "sem_local";
 
 // "hoje 00:00" no formato do input datetime-local (aaaa-mm-ddThh:mm)
 function startOfTodayLocal(): string {
@@ -89,6 +89,14 @@ export default function Auditoria() {
   const abort = useRef(false);
 
   useEffect(() => { setToken(localStorage.getItem("admin_token") ?? ""); }, []);
+  // deep-link do painel: ?falta=preco|local → já filtra e mira o campo certo
+  useEffect(() => {
+    try {
+      const f = new URLSearchParams(window.location.search).get("falta");
+      if (f === "preco") { setFilter("sem_preco"); setSelFields(new Set(["price"])); setCheckGeo(false); }
+      else if (f === "local") { setFilter("sem_local"); setSelFields(new Set()); setCheckGeo(true); }
+    } catch { /* ignora */ }
+  }, []);
   function saveToken(v: string) { setToken(v); localStorage.setItem("admin_token", v); }
   const headers = useCallback(() => ({ "content-type": "application/json", "x-admin-token": token }), [token]);
 
@@ -186,11 +194,17 @@ export default function Auditoria() {
   const cutoffMs = cutoff ? new Date(cutoff).getTime() : NaN;
   const isStale = (x: Item) => !x.lastAt || (Number.isFinite(cutoffMs) && new Date(x.lastAt).getTime() < cutoffMs);
   const staleCount = items.filter(isStale).length;
+  const noPrice = (x: Item) => x.price == null;
+  const noLocal = (x: Item) => x.lat == null;
+  const noPriceCount = items.filter(noPrice).length;
+  const noLocalCount = items.filter(noLocal).length;
   const shown = items.filter((x) => {
     if (filter === "pendentes" && x.reviewed) return false;
     if (filter === "revisados" && !x.reviewed) return false;
     if (filter === "sugestoes" && !withSuggestion(x)) return false;
     if (filter === "desde" && !isStale(x)) return false;
+    if (filter === "sem_preco" && !noPrice(x)) return false;
+    if (filter === "sem_local" && !noLocal(x)) return false;
     if (q) {
       const s = (x.title ?? "") + " " + (x.neighborhood ?? "") + " " + (x.type ?? "");
       if (!s.toLowerCase().includes(q.toLowerCase())) return false;
@@ -287,6 +301,8 @@ export default function Auditoria() {
                 <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
                 <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
                 <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Desde ({staleCount})</button>
+                <button style={seg(filter === "sem_preco")} onClick={() => setFilter("sem_preco")}>💲 Sem preço ({noPriceCount})</button>
+                <button style={seg(filter === "sem_local")} onClick={() => setFilter("sem_local")}>📍 Sem localização ({noLocalCount})</button>
                 <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
               </div>
               {filter === "desde" && (
@@ -305,9 +321,11 @@ export default function Auditoria() {
               {!batch ? (
                 (() => {
                   const n = filter === "pendentes" ? shown.filter((x) => !x.reviewed).length : shown.length;
+                  const verb = filter === "pendentes" ? "Revisar"
+                    : (filter === "sem_preco" || filter === "sem_local") ? "Auditar" : "Reauditar";
                   return (
                     <button className="btn" onClick={runBatch} disabled={n === 0}>
-                      {filter === "pendentes" ? `Revisar ${n} em lote` : `Reauditar ${n} em lote`}
+                      {verb} {n} em lote
                     </button>
                   );
                 })()
