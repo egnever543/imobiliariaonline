@@ -37,7 +37,7 @@ async function handle(req: Request) {
     const listings = await selectAll<Record<string, unknown>>((from, to) =>
       db
         .from("listings")
-        .select("id,title,type,neighborhood,price,source_url")
+        .select("id,title,type,neighborhood,price,lat,source_url")
         .order("first_seen_at", { ascending: false })
         .range(from, to),
     );
@@ -59,6 +59,7 @@ async function handle(req: Request) {
       const nChanges = rev ? Object.keys(rev.changes).length : 0;
       return {
         id: l.id, title: l.title, type: l.type, neighborhood: l.neighborhood, price: l.price,
+        lat: l.lat ?? null,
         source_url: l.source_url,
         reviewed: !!rev,
         lastChanges: nChanges,
