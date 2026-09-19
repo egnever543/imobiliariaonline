@@ -27,7 +27,7 @@ interface Item {
   price: number | null; lat?: number | null; source_url?: string | null;
   reviewed: boolean; lastChanges: number; applied: boolean; lastAt?: string | null;
   // estado local durante a auditoria
-  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; error?: string;
+  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; priceProbe?: { found: number | null } | null; error?: string;
 }
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
@@ -138,9 +138,10 @@ export default function Auditoria() {
       const changes = (r.changes as Record<string, Change>) ?? {};
       const verdicts = (r.verdicts as Verdict[]) ?? [];
       const geoInfo = (r.geoInfo as GeoInfo | null) ?? null;
+      const priceProbe = (r.priceProbe as { found: number | null } | null) ?? null;
       setCost((c) => c + ((r.estimatedCostUSD as number) || 0));
       setItems((xs) => xs.map((x) => x.id === it.id
-        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo, lastAt: new Date().toISOString() }
+        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo, priceProbe, lastAt: new Date().toISOString() }
         : x));
       return true;
     } catch (e) {
@@ -440,6 +441,12 @@ export default function Auditoria() {
                         </div>
                       );
                     })()}
+                    {/* preço conferido mas ausente em toda parte (anúncio "Consulte") */}
+                    {x.priceProbe && x.priceProbe.found == null && !(x.changes && x.changes.price) && (
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>
+                        💲 preço não consta no anúncio (nem no texto nem nos metadados) — provável “Consulte”
+                      </div>
+                    )}
                     {x.error && <div style={{ fontSize: 12, color: "var(--warn)" }}>⚠️ {x.error}</div>}
                   </div>
                   {/* selo */}
