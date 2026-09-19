@@ -27,7 +27,7 @@ interface Item {
   price: number | null; lat?: number | null; source_url?: string | null;
   reviewed: boolean; lastChanges: number; applied: boolean; lastAt?: string | null;
   // estado local durante a auditoria
-  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; priceProbe?: { found: number | null } | null; error?: string;
+  busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; priceProbe?: { found: number | null } | null; statusProbe?: { detected: string } | null; error?: string;
 }
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
@@ -73,6 +73,7 @@ export default function Auditoria() {
   // o que auditar: campos de texto marcados + localização (com limite de desvio)
   const [selFields, setSelFields] = useState<Set<string>>(new Set(ALL_FIELD_KEYS));
   const [checkGeo, setCheckGeo] = useState(false);
+  const [checkStatus, setCheckStatus] = useState(false);
   const [geoThreshold, setGeoThreshold] = useState(300);
 
   const [items, setItems] = useState<Item[]>([]);
@@ -128,20 +129,21 @@ export default function Auditoria() {
 
   // audita 1 imóvel e atualiza sua linha
   async function auditOne(it: Item) {
-    if (selFields.size === 0 && !checkGeo) { setMsg("Selecione ao menos um campo para auditar."); return false; }
+    if (selFields.size === 0 && !checkGeo && !checkStatus) { setMsg("Selecione ao menos um campo para auditar."); return false; }
     setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: true, error: undefined } : x)));
     try {
       const r = await post({
         listingId: it.id, apply, minConfidence: minConf, model,
-        fields: [...selFields], checkGeo, geoThresholdM: geoThreshold,
+        fields: [...selFields], checkGeo, checkStatus, geoThresholdM: geoThreshold,
       });
       const changes = (r.changes as Record<string, Change>) ?? {};
       const verdicts = (r.verdicts as Verdict[]) ?? [];
       const geoInfo = (r.geoInfo as GeoInfo | null) ?? null;
       const priceProbe = (r.priceProbe as { found: number | null } | null) ?? null;
+      const statusProbe = (r.statusProbe as { detected: string } | null) ?? null;
       setCost((c) => c + ((r.estimatedCostUSD as number) || 0));
       setItems((xs) => xs.map((x) => x.id === it.id
-        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo, priceProbe, lastAt: new Date().toISOString() }
+        ? { ...x, busy: false, reviewed: true, applied: !!r.applied, lastChanges: Object.keys(changes).length, changes, verdicts, geoInfo, priceProbe, statusProbe, lastAt: new Date().toISOString() }
         : x));
       return true;
     } catch (e) {
@@ -280,6 +282,7 @@ export default function Auditoria() {
               <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
             ))}
             <span style={{ width: 1, height: 20, background: "var(--border)", margin: "0 2px" }} />
+            <button onClick={() => setCheckStatus((v) => !v)} style={chipBtn(checkStatus)}>📌 Situação</button>
             <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Localização</button>
             {checkGeo && (
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
@@ -383,9 +386,9 @@ export default function Auditoria() {
                       </a>
                     </div>
                     {/* correções da última auditoria (sessão atual) — sem as coordenadas cruas */}
-                    {x.changes && Object.keys(x.changes).some((f) => !GEO_KEYS.has(f)) && (
+                    {x.changes && Object.keys(x.changes).some((f) => !GEO_KEYS.has(f) && f !== "status") && (
                       <div style={{ marginTop: 4, display: "grid", gap: 2 }}>
-                        {Object.entries(x.changes).filter(([f]) => !GEO_KEYS.has(f)).map(([f, c]) => (
+                        {Object.entries(x.changes).filter(([f]) => !GEO_KEYS.has(f) && f !== "status").map(([f, c]) => (
                           <div key={f} style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline" }}>
                             <span style={{ minWidth: 92, color: "var(--muted)" }}>{f}</span>
                             <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(c.from)}</span>
@@ -441,6 +444,19 @@ export default function Auditoria() {
                         </div>
                       );
                     })()}
+                    {/* situação detectada diferente da salva → some do mapa ao aplicar */}
+                    {x.changes && x.changes.status && (
+                      <div style={{ marginTop: 4, fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>📌 situação</span>
+                        <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(x.changes.status.from)}</span>
+                        <span>→</span>
+                        <span style={{ color: "var(--accent)", fontWeight: 700 }}>{fmt(x.changes.status.to)}</span>
+                        <span style={{ color: "var(--muted)" }}>· sai do mapa ao aplicar</span>
+                      </div>
+                    )}
+                    {x.statusProbe && !(x.changes && x.changes.status) && (
+                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>📌 situação confere ({x.statusProbe.detected})</div>
+                    )}
                     {/* preço conferido mas ausente em toda parte (anúncio "Consulte") */}
                     {x.priceProbe && x.priceProbe.found == null && !(x.changes && x.changes.price) && (
                       <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>

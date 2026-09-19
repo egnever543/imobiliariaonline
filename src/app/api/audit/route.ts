@@ -24,7 +24,7 @@ function sanePrice(v: unknown): number | null {
 
 // campos que a auditoria pode gravar ao aplicar: os de texto + os de localização
 const GEO_APPLY = ["lat", "lng", "geo_method", "street", "street_number", "neighborhood", "cep"] as const;
-const APPLY_ALLOWED = new Set<string>([...AUDIT_FIELDS, ...GEO_APPLY]);
+const APPLY_ALLOWED = new Set<string>([...AUDIT_FIELDS, ...GEO_APPLY, "status"]);
 
 export async function POST(req: Request) {
   try {
@@ -111,14 +111,15 @@ async function handle(req: Request) {
     ? (body.fields as string[]).filter((f): f is AuditField => (AUDIT_FIELDS as readonly string[]).includes(f))
     : AUDIT_FIELDS;
   const checkGeo = body.checkGeo === true;
+  const checkStatus = body.checkStatus === true;
   const geoThresholdM = typeof body.geoThresholdM === "number" ? body.geoThresholdM : 300;
-  if (!reqFields.length && !checkGeo) {
+  if (!reqFields.length && !checkGeo && !checkStatus) {
     return Response.json({ error: "Selecione ao menos um campo para auditar." }, { status: 400 });
   }
 
-  // 2) carrega o imóvel (campos de texto + endereço + cidade para geocodificar)
+  // 2) carrega o imóvel (campos de texto + endereço + cidade + situação)
   const cols = [
-    "id", "title", "source_url", ...AUDIT_FIELDS,
+    "id", "title", "source_url", "status", ...AUDIT_FIELDS,
     "street", "street_number", "cep", "lat", "lng", "geo_method", "cities(name,state)",
   ].join(",");
   const { data: row, error: rowErr } = await db
@@ -133,15 +134,18 @@ async function handle(req: Request) {
   const cityRel = (listing as { cities?: { name?: string; state?: string } | { name?: string; state?: string }[] }).cities;
   const city = Array.isArray(cityRel) ? cityRel[0] : cityRel;
 
-  // 3) lê o anúncio (uma vez, serve para texto e localização)
+  // 3) lê o anúncio via Jina (só quando há campos de texto ou localização;
+  // preço/situação usam o HTML estruturado, não o texto renderizado).
   let adText = "";
-  try {
-    adText = await fetchReadable(listing.source_url, { timeoutMs: 25_000 });
-  } catch (e) {
-    return Response.json(
-      { error: "Não consegui ler o anúncio: " + (e as Error).message, id: listing.id },
-      { status: 502 },
-    );
+  if (reqFields.length || checkGeo) {
+    try {
+      adText = await fetchReadable(listing.source_url, { timeoutMs: 25_000 });
+    } catch (e) {
+      return Response.json(
+        { error: "Não consegui ler o anúncio: " + (e as Error).message, id: listing.id },
+        { status: 502 },
+      );
+    }
   }
 
   const changes: Record<string, { from: unknown; to: unknown }> = {};
@@ -163,20 +167,38 @@ async function handle(req: Request) {
     }
   }
 
-  // 4a) preço pelo ESTRUTURADO (HTML cru: JSON-LD / og:price / "R$" no corpo).
-  // A IA lê o texto renderizado (Jina), que muitas vezes traz só "Consulte" —
-  // o preço real costuma estar nos metadados. Grátis; recupera o que a IA não vê.
+  // 4a) preço + SITUAÇÃO pelo ESTRUTURADO (HTML cru: JSON-LD / og:price / "R$"
+  // + detecção de vendido/alugado/reservado/locação; e "indisponível" se a
+  // página não abre mais). A IA lê o texto renderizado (Jina), que costuma
+  // trazer só "Consulte" e não a situação — por isso lemos o HTML. Grátis.
   let priceProbe: { found: number | null } | null = null;
-  if (reqFields.includes("price")) {
+  let statusProbe: { detected: string } | null = null;
+  if (reqFields.includes("price") || checkStatus) {
     try {
       const sig = await fetchListingSignals(listing.source_url);
-      const p = sanePrice((sig?.listing as { price?: unknown } | undefined)?.price);
-      priceProbe = { found: p };
-      const cur = sanePrice(listing.price);
-      if (p != null && p !== cur && !("price" in changes)) {
-        changes.price = { from: listing.price ?? null, to: p };
+      if (reqFields.includes("price")) {
+        const p = sanePrice((sig?.listing as { price?: unknown } | undefined)?.price);
+        priceProbe = { found: p };
+        const cur = sanePrice(listing.price);
+        if (p != null && p !== cur && !("price" in changes)) {
+          changes.price = { from: listing.price ?? null, to: p };
+        }
       }
-    } catch { /* ignora — segue com o que a IA achou */ }
+      if (checkStatus) {
+        // sig == null → página fora do ar → indisponível
+        const detected = sig ? sig.status : "indisponivel";
+        statusProbe = { detected };
+        const cur = (listing.status as string) || "ativo";
+        if (detected !== cur) changes.status = { from: cur, to: detected };
+      }
+    } catch {
+      // falha ao ler o HTML: se pediram situação, trata como indisponível
+      if (checkStatus) {
+        const cur = (listing.status as string) || "ativo";
+        statusProbe = { detected: "indisponivel" };
+        if (cur !== "indisponivel") changes.status = { from: cur, to: "indisponivel" };
+      }
+    }
   }
 
   // 4b) audita a localização (IA extrai endereço → geocodifica → compara)
@@ -212,6 +234,6 @@ async function handle(req: Request) {
 
   return Response.json({
     id: listing.id, title: listing.title,
-    verdicts, changes, geoInfo, priceProbe, applied, model, estimatedCostUSD: costUSD,
+    verdicts, changes, geoInfo, priceProbe, statusProbe, applied, model, estimatedCostUSD: costUSD,
   });
 }

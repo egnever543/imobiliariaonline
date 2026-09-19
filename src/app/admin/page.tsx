@@ -59,7 +59,7 @@ async function load(): Promise<Metrics> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.not("lat", "is", null)),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    count(db, "listings", (q: any) => q.is("price", null)),
+    count(db, "listings", (q: any) => q.is("price", null).eq("status", "ativo")),
     count(db, "pois"),
   ]);
 
