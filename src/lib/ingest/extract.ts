@@ -1,8 +1,9 @@
 // ── Extração estruturada por IA ───────────────────────────────────────
 // Lê o texto de um anúncio e devolve os campos estruturados.
-// Porta a lógica do nó OpenAI do n8n para o Anthropic SDK.
+// Usa o adapter multi-provedor (llm.ts), então EXTRACTION_MODEL pode ser
+// tanto claude-* quanto gpt-*/o-series (ex.: gpt-5-nano).
 
-import Anthropic from "@anthropic-ai/sdk";
+import { llmComplete } from "./llm";
 import type { ExtractedListing } from "./types";
 
 // Modelo configurável (lido a cada chamada, para respeitar .env e overrides).
@@ -53,12 +54,6 @@ Formato exato do JSON:
   "is_launch": boolean|null
 }`;
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) client = new Anthropic(); // lê ANTHROPIC_API_KEY
-  return client;
-}
-
 /** Remove cercas de código ```json ... ``` caso o modelo as inclua. */
 function stripFences(s: string): string {
   return s
@@ -106,23 +101,18 @@ export interface ExtractResult {
  */
 export async function extractListing(adText: string): Promise<ExtractResult> {
   const model = currentModel();
-  const msg = await getClient().messages.create({
+  const res = await llmComplete({
     model,
-    max_tokens: 1024,
     system: SYSTEM,
     // Só o começo da página basta (preço/área/quartos ficam no topo do
     // conteúdo); corta menu/rodapé/relacionados e reduz o custo da IA.
-    messages: [{ role: "user", content: adText.slice(0, 16_000) }],
+    user: adText.slice(0, 16_000),
+    maxTokens: 1024,
   });
-
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
 
   let listing: ExtractedListing | null = null;
   try {
-    const parsed = JSON.parse(stripFences(text)) as Partial<ExtractedListing>;
+    const parsed = JSON.parse(stripFences(res.text)) as Partial<ExtractedListing>;
     listing = { ...EMPTY, ...parsed };
   } catch {
     listing = null;
@@ -131,7 +121,7 @@ export async function extractListing(adText: string): Promise<ExtractResult> {
   return {
     listing,
     model,
-    inputTokens: msg.usage?.input_tokens ?? 0,
-    outputTokens: msg.usage?.output_tokens ?? 0,
+    inputTokens: res.inputTokens,
+    outputTokens: res.outputTokens,
   };
 }
