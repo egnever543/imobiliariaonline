@@ -22,6 +22,8 @@ interface Metrics {
   spendTotal: number;
   spendToday: number;
   statuses: Record<string, number>;
+  activeListings: number; // status = ativo (base das pendências)
+  indispo: number;        // status = indisponivel (fora do ar)
 }
 
 async function count(
@@ -48,18 +50,23 @@ async function load(): Promise<Metrics> {
     return {
       configured: false, cities: 0, agencies: 0, listings: 0, geoOk: 0,
       noGeo: 0, noPrice: 0, pois: 0, audited: 0, spendTotal: 0, spendToday: 0,
-      statuses: {},
+      statuses: {}, activeListings: 0, indispo: 0,
     };
   }
 
-  const [cities, agencies, listings, geoOk, noPrice, pois] = await Promise.all([
+  const [cities, agencies, listings, geoOk, noPrice, noGeoActive, activeListings, pois] = await Promise.all([
     count(db, "cities"),
     count(db, "agencies"),
     count(db, "listings"),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.not("lat", "is", null)),
+    // pendências contam só ATIVOS (vendido/indisponível não é tarefa a corrigir)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.is("price", null).eq("status", "ativo")),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    count(db, "listings", (q: any) => q.is("lat", null).eq("status", "ativo")),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    count(db, "listings", (q: any) => q.eq("status", "ativo")),
     count(db, "pois"),
   ]);
 
@@ -100,7 +107,8 @@ async function load(): Promise<Metrics> {
 
   return {
     configured: true, cities, agencies, listings, geoOk,
-    noGeo: Math.max(0, listings - geoOk), noPrice, pois, audited, spendTotal, spendToday, statuses,
+    noGeo: noGeoActive, noPrice, pois, audited, spendTotal, spendToday, statuses,
+    activeListings, indispo: statuses["indisponivel"] ?? 0,
   };
 }
 
@@ -162,10 +170,12 @@ export default async function AdminHub() {
   if (!m.configured) {
     pend.push({ label: "Supabase não configurado — preencha as chaves no servidor.", href: "/admin", cta: "—", tone: "warn" });
   } else {
+    // pendências consideram só imóveis ATIVOS (vendido/indisponível não é tarefa)
     if (m.listings === 0) pend.push({ label: "Nenhum imóvel coletado ainda.", href: "/admin/coletar", cta: "Coletar", tone: "accent" });
-    if (m.noGeo > 0) pend.push({ label: `${n(m.noGeo)} imóveis sem localização no mapa.`, href: "/admin/geo", cta: "Corrigir", tone: "warn" });
-    if (m.listings > 0 && m.audited < m.listings) pend.push({ label: `${n(m.listings - m.audited)} imóveis ainda não revisados pela IA.`, href: "/admin/auditoria", cta: "Auditar", tone: "accent" });
-    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis sem preço.`, href: "/admin/auditoria?falta=preco", cta: "Revisar", tone: "warn" });
+    if (m.noGeo > 0) pend.push({ label: `${n(m.noGeo)} imóveis ativos sem localização no mapa.`, href: "/admin/geo", cta: "Corrigir", tone: "warn" });
+    const unreviewed = Math.max(0, m.activeListings - m.audited);
+    if (unreviewed > 0) pend.push({ label: `${n(unreviewed)} imóveis ativos ainda não revisados pela IA.`, href: "/admin/auditoria", cta: "Auditar", tone: "accent" });
+    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis ativos sem preço.`, href: "/admin/auditoria?falta=preco", cta: "Revisar", tone: "warn" });
     if (m.listings > 0 && m.pois === 0) pend.push({ label: "Comércios ainda não coletados (mapa de calor vazio).", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
   }
 
@@ -270,6 +280,23 @@ export default async function AdminHub() {
             </div>
           )}
         </section>
+
+        {/* Fora do ar (indisponíveis) — separado das pendências: não é tarefa a corrigir */}
+        {m.indispo > 0 && (
+          <section style={{ marginTop: 20 }}>
+            <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Fora do ar</h2>
+            <div className="card" style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 16 }}>🚫</span>
+              <span style={{ flex: 1, fontSize: 14 }}>
+                {n(m.indispo)} imóveis <strong>indisponíveis</strong> (anúncio saiu do ar).
+                Ficam no histórico, fora do mapa — não são pendência.
+              </span>
+              <a href="/imoveis" className="btn" style={{ padding: "6px 14px", fontSize: 13, background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--border)" }}>
+                Ver na vitrine →
+              </a>
+            </div>
+          </section>
+        )}
 
         {/* Ferramentas */}
         <section style={{ marginTop: 28 }}>
