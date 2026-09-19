@@ -11,9 +11,16 @@ import { fetchReadable } from "@/lib/ingest/jina";
 import { estimateCostUSD } from "@/lib/ingest/cost";
 import { auditListing, AUDIT_FIELDS, type AuditField, type FieldVerdict } from "@/lib/ingest/audit";
 import { auditGeo } from "@/lib/ingest/geoaudit";
+import { fetchListingSignals } from "@/lib/ingest/structured";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+function sanePrice(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n < 5000 || n > 80_000_000) return null;
+  return n;
+}
 
 // campos que a auditoria pode gravar ao aplicar: os de texto + os de localização
 const GEO_APPLY = ["lat", "lng", "geo_method", "street", "street_number", "neighborhood", "cep"] as const;
@@ -156,6 +163,22 @@ async function handle(req: Request) {
     }
   }
 
+  // 4a) preço pelo ESTRUTURADO (HTML cru: JSON-LD / og:price / "R$" no corpo).
+  // A IA lê o texto renderizado (Jina), que muitas vezes traz só "Consulte" —
+  // o preço real costuma estar nos metadados. Grátis; recupera o que a IA não vê.
+  let priceProbe: { found: number | null } | null = null;
+  if (reqFields.includes("price")) {
+    try {
+      const sig = await fetchListingSignals(listing.source_url);
+      const p = sanePrice((sig?.listing as { price?: unknown } | undefined)?.price);
+      priceProbe = { found: p };
+      const cur = sanePrice(listing.price);
+      if (p != null && p !== cur && !("price" in changes)) {
+        changes.price = { from: listing.price ?? null, to: p };
+      }
+    } catch { /* ignora — segue com o que a IA achou */ }
+  }
+
   // 4b) audita a localização (IA extrai endereço → geocodifica → compara)
   let geoInfo: Awaited<ReturnType<typeof auditGeo>>["info"] = null;
   if (checkGeo) {
@@ -189,6 +212,6 @@ async function handle(req: Request) {
 
   return Response.json({
     id: listing.id, title: listing.title,
-    verdicts, changes, geoInfo, applied, model, estimatedCostUSD: costUSD,
+    verdicts, changes, geoInfo, priceProbe, applied, model, estimatedCostUSD: costUSD,
   });
 }
