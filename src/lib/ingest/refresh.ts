@@ -80,5 +80,13 @@ export async function refreshOne(
     db.from("listing_snapshots").insert({ listing_id: row.id, price: patch.price }).then(() => {}, () => {});
   }
 
+  // registra as alterações no histórico (data_audits, origem "conferencia"),
+  // para o usuário conferir depois o que foi mudado. Não falha o refresh.
+  if (Object.keys(changed).length) {
+    db.from("data_audits")
+      .insert({ listing_id: row.id, verdicts: [], changes: changed, applied: true, model: "conferencia", input_tokens: 0, output_tokens: 0, cost_usd: 0 })
+      .then(() => {}, () => {});
+  }
+
   return { id: row.id, status: sig.status, changed };
 }
