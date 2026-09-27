@@ -13,6 +13,8 @@ export interface ScorableListing {
   geo_method: string | null;
   neighborhood?: string | null;
   type?: string | null;
+  /** Distância do mar declarada no anúncio (m), quando houver. */
+  beach_distance_m?: number | null;
 }
 
 // Explicação por imóvel: preço justo estimado, desconto e confiança do dado.
@@ -36,6 +38,8 @@ export interface ScoreConfig {
   weights?: Weights;
   /** Linha de costa da cidade: lista de polilinhas [[lat,lng],...]. */
   coastline?: [number, number][][];
+  /** Praias de areia da cidade (OSM natural=beach): lista de polígonos. */
+  beaches?: [number, number][][];
   pois?: Poi[];
 }
 
@@ -66,6 +70,36 @@ export function coastlineDistanceM(
     }
   }
   return Number.isFinite(min) ? min : null;
+}
+
+// Distância "até o mar" (praia) de um imóvel, com fonte, na ordem de confiança:
+//   1) "anúncio": a imobiliária escreve "a X m do mar/praia" → é o que o
+//      comprador lê e o mais fiel (não depende de geometria).
+//   2) "praia": distância até a PRAIA de areia do OSM (natural=beach). Evita o
+//      viés de baía/estuário/canal — que são "costa" (natural=coastline) mas
+//      ninguém chama de praia. Corrige cidades com baía (ex.: Babitonga/Itapoá).
+//   3) "costa": último recurso — linha de costa crua, quando não há praia
+//      coletada. Pode superestimar a proximidade em cidades com baía.
+export type BeachSource = "anuncio" | "praia" | "costa";
+export function beachDistanceM(
+  lat: number | null,
+  lng: number | null,
+  opts: { declaredM?: number | null; beaches?: [number, number][][]; coastline?: [number, number][][] },
+): { meters: number | null; source: BeachSource | null } {
+  const declared = opts.declaredM;
+  if (typeof declared === "number" && Number.isFinite(declared) && declared >= 0) {
+    return { meters: declared, source: "anuncio" };
+  }
+  if (lat == null || lng == null) return { meters: null, source: null };
+  if (opts.beaches?.length) {
+    const d = coastlineDistanceM(lat, lng, opts.beaches);
+    if (d != null) return { meters: d, source: "praia" };
+  }
+  if (opts.coastline?.length) {
+    const d = coastlineDistanceM(lat, lng, opts.coastline);
+    if (d != null) return { meters: d, source: "costa" };
+  }
+  return { meters: null, source: null };
 }
 
 export interface ScoredListing {
@@ -152,6 +186,7 @@ export function scoreListings(
 ): ScoredListing[] {
   const w = normalizeWeights(config.weights ?? DEFAULT_WEIGHTS);
   const coastline = config.coastline ?? [];
+  const beaches = config.beaches ?? [];
   const pois = config.pois ?? [];
 
   const pm2s = listings
@@ -197,11 +232,11 @@ export function scoreListings(
   }
 
   const results = listings.map((d) => {
-    // praia: distância até o segmento de costa mais próximo (satura em 5 km)
+    // praia: distância do mar (anúncio → praia OSM → costa OSM), satura em 5 km
     let beach = 0;
-    if (d.lat != null && d.lng != null && coastline.length) {
-      const dist = coastlineDistanceM(d.lat, d.lng, coastline);
-      if (dist != null) beach = Math.max(0, Math.min(100, 100 * (1 - dist / 5000)));
+    {
+      const bd = beachDistanceM(d.lat, d.lng, { declaredM: d.beach_distance_m, beaches, coastline });
+      if (bd.meters != null) beach = Math.max(0, Math.min(100, 100 * (1 - bd.meters / 5000)));
     }
 
     // POIs

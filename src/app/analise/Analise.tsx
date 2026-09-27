@@ -30,6 +30,7 @@ export interface Item {
   lat: number | null;
   lng: number | null;
   geo_method: string | null;
+  beach_distance_m: number | null;
   image_url: string | null;
   source_url: string;
   agency: string;
@@ -78,8 +79,9 @@ function DiscountChip({ pct }: { pct: number | null }) {
 
 const TOP_N = 30;
 
-export default function Analise({ items, pois, coastline }: { items: Item[]; pois: Poi[]; coastline?: [number, number][][] }) {
+export default function Analise({ items, pois, coastline, beaches }: { items: Item[]; pois: Poi[]; coastline?: [number, number][][]; beaches?: [number, number][][] }) {
   const coast = useMemo<[number, number][][]>(() => (coastline?.length ? coastline : [ITAPOA_COASTLINE]), [coastline]);
+  const beach = useMemo<[number, number][][]>(() => beaches ?? [], [beaches]);
   const [obj, setObj] = useState("investidor");
   const [tipo, setTipo] = useState("");
   const [bairro, setBairro] = useState("");
@@ -108,13 +110,14 @@ export default function Analise({ items, pois, coastline }: { items: Item[]; poi
       id: i.id, price: i.price, area_total_m2: i.area_total_m2,
       lat: i.lat, lng: i.lng, geo_method: i.geo_method,
       neighborhood: i.neighborhood, type: i.type,
+      beach_distance_m: i.beach_distance_m,
     }));
-    const res = scoreListings(scorable, { weights: profile.weights, coastline: coast, pois });
+    const res = scoreListings(scorable, { weights: profile.weights, coastline: coast, beaches: beach, pois });
     const byId = new Map(filtered.map((i) => [i.id, i]));
     return res
       .map((r) => ({ item: byId.get(r.id)!, score: r.score, insight: r.insight }))
       .filter((x) => x.item);
-  }, [filtered, profile, pois, coast]);
+  }, [filtered, profile, pois, coast, beach]);
 
   const top = ranked.slice(0, TOP_N);
   const hero = top[0];
@@ -122,7 +125,10 @@ export default function Analise({ items, pois, coastline }: { items: Item[]; poi
   const objMeta = OBJECTIVES.find((o) => o.id === obj)!;
 
   function reasonsFor(item: Item, insight: ListingInsight) {
-    return buildReasons({ lat: item.lat, lng: item.lng, insight, pois, coastline: coast });
+    return buildReasons({
+      lat: item.lat, lng: item.lng, insight, pois,
+      coastline: coast, beaches: beach, declaredBeachM: item.beach_distance_m,
+    });
   }
 
   return (

@@ -19,17 +19,20 @@ async function loadPois(): Promise<Poi[]> {
   }
 }
 
-async function loadCoastline(): Promise<[number, number][][]> {
+// linha de costa + praias de areia da cidade (para o fator praia do ranking)
+async function loadCoast(): Promise<{ coastline: [number, number][][]; beaches: [number, number][][] }> {
   try {
     const db = getServiceClient();
-    const { data } = await db.from("city_coastlines").select("ways");
-    const ways: [number, number][][] = [];
-    for (const row of (data ?? []) as { ways?: [number, number][][] }[]) {
-      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) ways.push(w);
+    const { data } = await db.from("city_coastlines").select("ways,beaches");
+    const coastline: [number, number][][] = [];
+    const beaches: [number, number][][] = [];
+    for (const row of (data ?? []) as { ways?: [number, number][][]; beaches?: [number, number][][] }[]) {
+      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) coastline.push(w);
+      for (const b of row.beaches ?? []) if (Array.isArray(b) && b.length >= 2) beaches.push(b);
     }
-    return ways;
+    return { coastline, beaches };
   } catch {
-    return [];
+    return { coastline: [], beaches: [] };
   }
 }
 
@@ -37,7 +40,7 @@ async function loadItems(): Promise<Item[]> {
   try {
     const db = getServiceClient();
     const cols =
-      "id,title,type,price,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,neighborhood,street,cep,lat,lng,geo_method,image_url,source_url,agencies(name)";
+      "id,title,type,price,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,neighborhood,street,cep,lat,lng,geo_method,beach_distance_m,image_url,source_url,agencies(name)";
     let data: Record<string, unknown>[];
     try {
       data = await selectAll<Record<string, unknown>>((from, to) =>
@@ -59,6 +62,6 @@ async function loadItems(): Promise<Item[]> {
 }
 
 export default async function AnalisePage() {
-  const [items, pois, coastline] = await Promise.all([loadItems(), loadPois(), loadCoastline()]);
-  return <Analise items={items} pois={pois} coastline={coastline} />;
+  const [items, pois, coast] = await Promise.all([loadItems(), loadPois(), loadCoast()]);
+  return <Analise items={items} pois={pois} coastline={coast.coastline} beaches={coast.beaches} />;
 }

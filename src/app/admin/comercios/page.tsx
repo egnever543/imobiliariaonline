@@ -74,9 +74,9 @@ export default function Comercios() {
       try { data = text ? JSON.parse(text) : {}; } catch { /* vazio/timeout */ }
       if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status}`);
       setMsg(
-        (data.points as number) > 0
-          ? `✅ Linha de costa coletada (${data.points} pontos em ${data.ways} trechos). O fator "praia" já usa isso.`
-          : "Nenhuma costa encontrada nessa área (cidade sem mar?).",
+        (data.points as number) > 0 || (data.beachPoints as number) > 0
+          ? `✅ Costa: ${data.points} pontos em ${data.ways} trechos · Praia: ${data.beachPoints ?? 0} pontos em ${data.beaches ?? 0} áreas. O fator "praia" já usa isso (praia tem prioridade sobre a costa).`
+          : "Nenhuma costa nem praia encontrada nessa área (cidade sem mar?).",
       );
     } catch (e) {
       setMsg("Erro: " + (e as Error).message);

@@ -89,6 +89,7 @@ export function normalizeListing(
     parking: toNumber(extracted.parking),
     built_area_m2: toNumber(extracted.built_area_m2),
     condo_fee: toNumber(extracted.condo_fee),
+    beach_distance_m: toNumber(extracted.beach_distance_m),
     city_id: source.cityId,
     agency_id: source.agencyId,
     source_url: sourceUrl,

@@ -28,6 +28,7 @@ Regras:
 - "built_area_m2": área CONSTRUÍDA em m² (diferente da área do terreno). Sem info -> null.
 - "condo_fee": valor do condomínio mensal em número puro. Sem info -> null.
 - "is_launch": true se for lançamento / imóvel na planta / em construção, senão false.
+- "beach_distance_m": distância do mar/praia em METROS, quando o anúncio informar (ex: "a 800 m do mar" -> 800; "a 2 km da praia" -> 2000). Sem essa info -> null. Nunca estime.
 
 Formato exato do JSON:
 {
@@ -51,7 +52,8 @@ Formato exato do JSON:
   "parking": number|null,
   "built_area_m2": number|null,
   "condo_fee": number|null,
-  "is_launch": boolean|null
+  "is_launch": boolean|null,
+  "beach_distance_m": number|null
 }`;
 
 /** Remove cercas de código ```json ... ``` caso o modelo as inclua. */
@@ -86,6 +88,7 @@ const EMPTY: ExtractedListing = {
   condo_fee: null,
   is_launch: null,
   image_url: null,
+  beach_distance_m: null,
 };
 
 export interface ExtractResult {

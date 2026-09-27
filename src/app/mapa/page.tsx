@@ -20,17 +20,19 @@ async function loadPois(): Promise<PoiPoint[]> {
 
 // Linha de costa coletada do OSM (todas as cidades, unidas). Vazio → o
 // componente usa a linha fixa como fallback.
-async function loadCoastline(): Promise<[number, number][][]> {
+async function loadCoast(): Promise<{ coastline: [number, number][][]; beaches: [number, number][][] }> {
   try {
     const db = getServiceClient();
-    const { data } = await db.from("city_coastlines").select("ways");
-    const ways: [number, number][][] = [];
-    for (const row of (data ?? []) as { ways?: [number, number][][] }[]) {
-      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) ways.push(w);
+    const { data } = await db.from("city_coastlines").select("ways,beaches");
+    const coastline: [number, number][][] = [];
+    const beaches: [number, number][][] = [];
+    for (const row of (data ?? []) as { ways?: [number, number][][]; beaches?: [number, number][][] }[]) {
+      for (const w of row.ways ?? []) if (Array.isArray(w) && w.length >= 2) coastline.push(w);
+      for (const b of row.beaches ?? []) if (Array.isArray(b) && b.length >= 2) beaches.push(b);
     }
-    return ways;
+    return { coastline, beaches };
   } catch {
-    return [];
+    return { coastline: [], beaches: [] };
   }
 }
 
@@ -38,7 +40,7 @@ async function loadListings(): Promise<Listing[]> {
   try {
     const db = getServiceClient();
     const cols =
-      "id,title,type,price,price_original,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,accepts_permuta,is_launch,image_url,source_url,agencies(name)";
+      "id,title,type,price,price_original,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,frente_m,comprimento_m,neighborhood,street,cep,lat,lng,geo_method,beach_distance_m,accepts_permuta,is_launch,image_url,source_url,agencies(name)";
 
     // Só imóveis ATIVOS entram no mapa (vendido/alugado/locação/indisponível
     // ficam no banco, mas fora do mapa). Paginado para trazer TODOS (o
@@ -68,6 +70,6 @@ async function loadListings(): Promise<Listing[]> {
 }
 
 export default async function Mapa() {
-  const [listings, pois, coastline] = await Promise.all([loadListings(), loadPois(), loadCoastline()]);
-  return <Explorer listings={listings} pois={pois} coastline={coastline} />;
+  const [listings, pois, coast] = await Promise.all([loadListings(), loadPois(), loadCoast()]);
+  return <Explorer listings={listings} pois={pois} coastline={coast.coastline} beaches={coast.beaches} />;
 }

@@ -13,7 +13,7 @@ type DB = ReturnType<typeof getServiceClient>;
 // campos preenchidos só quando estão vazios (não sobrescreve dado bom)
 export const FILL_IF_MISSING = [
   "type", "area_total_m2", "built_area_m2", "bedrooms", "bathrooms",
-  "suites", "parking", "neighborhood", "image_url",
+  "suites", "parking", "neighborhood", "image_url", "beach_distance_m",
 ] as const;
 
 // colunas mínimas que o refresh precisa ler de cada imóvel

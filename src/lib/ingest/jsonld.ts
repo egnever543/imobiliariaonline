@@ -145,6 +145,7 @@ export function extractJsonLd(html: string): ExtractedListing | null {
     condo_fee: null,
     is_launch: null,
     image_url: null,
+    beach_distance_m: null,
   };
 }
 
