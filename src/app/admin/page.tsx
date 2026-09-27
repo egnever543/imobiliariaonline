@@ -127,29 +127,47 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 const STATUS_ORDER = ["ativo", "vendido", "alugado", "locacao", "reservado", "indisponivel"];
 
 interface Tool {
-  href: string; icon: string; name: string; desc: string; info: string;
+  href: string; icon: string; name: string; desc: string; info: string; step?: number;
 }
-const TOOLS: Tool[] = [
-  { href: "/imoveis", icon: "🏠", name: "Imóveis (vitrine)", desc: "Ver todos com foto e o que falta",
-    info: "Grade estilo portal com foto de cada imóvel, atributos e selos do que está faltando (sem foto, sem preço, sem área, sem localização). Melhor que o mapa para revisar a completude dos dados." },
-  { href: "/admin/atualizar", icon: "🔄", name: "Atualizar imóveis", desc: "Revisitar anúncios (preço, foto, status)",
-    info: "Revisita os anúncios já coletados (grátis, sem IA): traz preço novo, completa dados que faltavam (incluindo a foto) e marca como indisponível o que saiu do ar. Rode de tempos em tempos." },
-  { href: "/mapa", icon: "🗺️", name: "Mapa", desc: "Explorar imóveis, filtrar e ranquear",
-    info: "Mapa interativo com busca por tipo, quartos, preço e bairro. Liga o ranking inteligente (proximidade de praia, comércios, R$/m²) e o mapa de calor de comércios. É a tela do corretor." },
-  { href: "/admin/coletar", icon: "📥", name: "Coletar imóveis", desc: "Puxar anúncios de uma imobiliária",
-    info: "Informe o site de uma imobiliária: o sistema busca os anúncios (grátis) e coleta quantos você escolher, mostrando o custo da IA ao vivo. Use para adicionar uma imobiliária específica." },
-  { href: "/admin/coletar-cidade", icon: "🏙️", name: "Coletar cidade", desc: "Varrer a cidade inteira de uma vez",
-    info: "Roda a coleta em todas as imobiliárias já descobertas na cidade, em sequência. Ideal para popular a base de uma cidade nova." },
-  { href: "/admin/descobrir", icon: "🔎", name: "Descobrir imobiliárias", desc: "Achar imobiliárias via Google",
-    info: "Usa o Google Places para listar as imobiliárias de uma cidade e o site de cada uma, salvando-as para depois coletar. Primeiro passo ao abrir uma cidade nova." },
-  { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Geocodificar imóveis sem coordenada",
-    info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto manualmente." },
-  { href: "/admin/comercios", icon: "🔥", name: "Comércios / mapa de calor", desc: "Coletar escola, farmácia, mercado…",
-    info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
-  { href: "/admin/auditoria", icon: "✅", name: "Auditoria por IA", desc: "Conferir e corrigir os dados",
-    info: "A IA lê cada anúncio, compara com os dados salvos e corrige o que estiver errado (preço, área, tipo, quartos…). Revise um a um ou em lote; dá para só sugerir antes de aplicar." },
-  { href: "/admin/avaliacao", icon: "📊", name: "Como avaliamos", desc: "Entenda o ranking inteligente",
-    info: "Explica de onde vem a nota de cada imóvel: o preço justo por bairro, o fator de oferta, os comércios por perto, a praia e a confiança do dado. Bom para entender e explicar ao cliente." },
+interface ToolGroup { title: string; icon: string; hint?: string; tools: Tool[] }
+
+// Ferramentas agrupadas por intenção (menos "parede de opções"):
+//  1) Adicionar imóveis — o fluxo para popular/ampliar a base (1·2·3)
+//  2) Manter a base — cuidar do que já foi coletado
+//  3) Entender — como o ranking é calculado
+// Ver a base (Mapa, Vitrine, Análise) fica no menu do topo — não repetido aqui.
+const TOOL_GROUPS: ToolGroup[] = [
+  {
+    title: "Adicionar imóveis", icon: "➕", hint: "para abrir uma cidade nova, siga 1 → 2 → 3",
+    tools: [
+      { step: 1, href: "/admin/descobrir", icon: "🔎", name: "Descobrir imobiliárias", desc: "Achar imobiliárias via Google",
+        info: "Usa o Google Places para listar as imobiliárias de uma cidade e o site de cada uma, salvando-as para depois coletar. Primeiro passo ao abrir uma cidade nova." },
+      { step: 2, href: "/admin/coletar-cidade", icon: "🏙️", name: "Coletar cidade", desc: "Varrer a cidade inteira de uma vez",
+        info: "Roda a coleta em todas as imobiliárias já descobertas na cidade, em sequência. Ideal para popular a base de uma cidade nova." },
+      { step: 3, href: "/admin/coletar", icon: "📥", name: "Coletar imobiliária", desc: "Puxar anúncios de um site específico",
+        info: "Informe o site de uma imobiliária: o sistema busca os anúncios (grátis) e coleta quantos você escolher, mostrando o custo da IA ao vivo. Use para adicionar uma imobiliária específica." },
+    ],
+  },
+  {
+    title: "Manter a base", icon: "🛠", hint: "cuidar do que já foi coletado",
+    tools: [
+      { href: "/admin/atualizar", icon: "🔄", name: "Atualizar imóveis", desc: "Revisitar anúncios (preço, foto, status)",
+        info: "Revisita os anúncios já coletados (grátis, sem IA): traz preço novo, completa dados que faltavam (incluindo a foto) e marca como indisponível o que saiu do ar. Rode de tempos em tempos." },
+      { href: "/admin/auditoria", icon: "✅", name: "Auditoria por IA", desc: "Conferir e corrigir os dados",
+        info: "A IA lê cada anúncio, compara com os dados salvos e corrige o que estiver errado (preço, área, tipo, quartos…). Revise um a um ou em lote; dá para só sugerir antes de aplicar." },
+      { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Geocodificar imóveis sem coordenada",
+        info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto manualmente." },
+      { href: "/admin/comercios", icon: "🔥", name: "Comércios / mapa de calor", desc: "Coletar escola, farmácia, mercado…",
+        info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
+    ],
+  },
+  {
+    title: "Entender", icon: "📊",
+    tools: [
+      { href: "/admin/avaliacao", icon: "📊", name: "Como avaliamos", desc: "Entenda o ranking inteligente",
+        info: "Explica de onde vem a nota de cada imóvel: o preço justo por bairro, o fator de oferta, os comércios por perto, a praia e a confiança do dado. Bom para entender e explicar ao cliente." },
+    ],
+  },
 ];
 
 function InfoDot({ text }: { text: string }) {
@@ -179,15 +197,13 @@ export default async function AdminHub() {
     if (m.listings > 0 && m.pois === 0) pend.push({ label: "Comércios ainda não coletados (mapa de calor vazio).", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
   }
 
+  // Só os 4 KPIs que importam de relance. O resto (imobiliárias, cidades,
+  // comércios, gasto) sai da parede de cards: gasto vira uma linha discreta.
   const kpis: { label: string; value: string; sub?: string }[] = [
     { label: "Imóveis", value: n(m.listings) },
-    { label: "Imobiliárias", value: n(m.agencies) },
-    { label: "Cidades", value: n(m.cities) },
+    { label: "Ativos (no mapa)", value: n(m.activeListings), sub: m.listings ? Math.round((m.activeListings / m.listings) * 100) + "%" : undefined },
     { label: "Com localização", value: n(m.geoOk), sub: m.listings ? Math.round((m.geoOk / m.listings) * 100) + "%" : undefined },
     { label: "Revisados (IA)", value: n(m.audited), sub: m.listings ? Math.round((m.audited / m.listings) * 100) + "%" : undefined },
-    { label: "Comércios", value: n(m.pois) },
-    { label: "Gasto IA (total)", value: usd(m.spendTotal) },
-    { label: "Gasto IA (hoje)", value: usd(m.spendToday) },
   ];
 
   return (
@@ -211,6 +227,14 @@ export default async function AdminHub() {
               <div style={{ fontSize: 12.5, color: "var(--muted)" }}>{k.label}</div>
             </div>
           ))}
+        </div>
+
+        {/* Linha discreta: números secundários que antes eram cards */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 10, fontSize: 12.5, color: "var(--muted)" }}>
+          <span>{n(m.agencies)} imobiliárias</span><span>·</span>
+          <span>{n(m.cities)} cidades</span><span>·</span>
+          <span>{n(m.pois)} comércios</span><span>·</span>
+          <span>Gasto IA: <strong style={{ color: "var(--ink)" }}>{usd(m.spendTotal)}</strong> total · {usd(m.spendToday)} hoje</span>
         </div>
 
         {/* Situação dos imóveis */}
@@ -298,25 +322,41 @@ export default async function AdminHub() {
           </section>
         )}
 
-        {/* Ferramentas */}
+        {/* Ferramentas — agrupadas por intenção */}
         <section style={{ marginTop: 28 }}>
-          <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Ferramentas</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            {TOOLS.map((t) => (
-              <a key={t.href} href={t.href} className="card"
-                style={{ padding: 16, textDecoration: "none", color: "var(--ink)", display: "block" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 20 }}>{t.icon}</span>
-                  <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{t.name}</span>
-                  <InfoDot text={t.info} />
+          <h2 style={{ fontSize: 16, margin: "0 0 4px" }}>Ferramentas</h2>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 14px" }}>
+            Ver a base (Mapa, Vitrine, Análise) fica no menu do topo. Passe o mouse no <span style={{ fontStyle: "italic" }}>(i)</span> para o que cada uma faz.
+          </p>
+          <div style={{ display: "grid", gap: 20 }}>
+            {TOOL_GROUPS.map((g) => (
+              <div key={g.title}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 700 }}>{g.icon} {g.title}</span>
+                  {g.hint && <span style={{ fontSize: 12, color: "var(--muted)" }}>· {g.hint}</span>}
                 </div>
-                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{t.desc}</div>
-              </a>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+                  {g.tools.map((t) => (
+                    <a key={t.href} href={t.href} className="card"
+                      style={{ padding: 16, textDecoration: "none", color: "var(--ink)", display: "block" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {t.step != null && (
+                          <span style={{
+                            display: "inline-grid", placeItems: "center", width: 20, height: 20, flexShrink: 0,
+                            borderRadius: 99, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 800,
+                          }}>{t.step}</span>
+                        )}
+                        <span style={{ fontSize: 20 }}>{t.icon}</span>
+                        <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{t.name}</span>
+                        <InfoDot text={t.info} />
+                      </div>
+                      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{t.desc}</div>
+                    </a>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
-          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
-            Passe o mouse no <span style={{ fontStyle: "italic" }}>(i)</span> de cada ferramenta para ver o que ela faz.
-          </p>
         </section>
       </main>
     </>
