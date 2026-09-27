@@ -18,6 +18,7 @@ const input: React.CSSProperties = {
 };
 
 interface Change { from: unknown; to: unknown }
+interface HistItem { at: string; origin: "conferencia" | "ia" | "manual"; model: string | null; applied: boolean; changes: Record<string, Change> }
 interface Verdict {
   field: string; status: "ok" | "fix";
   value: unknown; confidence: number; reason?: string;
@@ -107,6 +108,8 @@ export default function Auditoria() {
   const [freeSummary, setFreeSummary] = useState<{ updated: number; offair: number } | null>(null);
   const [moreFilters, setMoreFilters] = useState(false); // filtros secundários
   const didAutoLoad = useRef(false);
+  // histórico de alterações por imóvel (lazy) — o que a conferência e a IA mudaram
+  const [histById, setHistById] = useState<Record<string, HistItem[] | "loading">>({});
 
   useEffect(() => {
     const t = localStorage.getItem("admin_token") ?? "";
@@ -156,6 +159,17 @@ export default function Auditoria() {
   }
   function toggleExpand(id: string) {
     setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+  // carrega (uma vez) o histórico de alterações de um imóvel
+  async function loadHistory(id: string) {
+    if (histById[id]) return; // já carregado/carregando
+    setHistById((h) => ({ ...h, [id]: "loading" }));
+    try {
+      const r = await post({ history: id });
+      setHistById((h) => ({ ...h, [id]: (r.history as HistItem[]) ?? [] }));
+    } catch {
+      setHistById((h) => ({ ...h, [id]: [] }));
+    }
   }
 
   // audita 1 imóvel e atualiza sua linha
@@ -334,9 +348,6 @@ export default function Auditoria() {
     if (!out.length && x.reviewed && !x.busy) out.push({ key: "ok", label: "✓ confere", tone: "ok" });
     return out;
   }
-  const hasDetail = (x: Item) =>
-    !!(x.changes && Object.keys(x.changes).length) || !!(x.verdicts && x.verdicts.length) ||
-    !!x.geoInfo || !!x.priceProbe || !!x.statusProbe || !!x.error;
 
   return (
     <>
@@ -506,7 +517,7 @@ export default function Auditoria() {
               {shown.slice(0, 400).map((x, i) => {
                 const isOpen = expanded.has(x.id);
                 const badges = rowBadges(x);
-                const canExpand = hasDetail(x);
+                const canExpand = true; // sempre abre: mostra links e o histórico de alterações
                 const canApply = !!(x.changes && Object.keys(x.changes).length > 0 && !x.applied && !x.busy);
                 return (
                 <div key={x.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
@@ -643,6 +654,36 @@ export default function Auditoria() {
                       </div>
                     )}
                     {x.error && <div style={{ fontSize: 12, color: "var(--warn)" }}>⚠️ {x.error}</div>}
+
+                    {/* Histórico de alterações — o que a conferência e a IA já mudaram neste imóvel */}
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 8, marginTop: 2 }}>
+                      {!histById[x.id] ? (
+                        <button style={linkBtn} onClick={(e) => { e.stopPropagation(); loadHistory(x.id); }}>📜 Ver histórico de alterações</button>
+                      ) : histById[x.id] === "loading" ? (
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>carregando histórico…</span>
+                      ) : (histById[x.id] as HistItem[]).length === 0 ? (
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>📜 Sem alterações registradas ainda.</span>
+                      ) : (
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--muted)" }}>📜 Histórico de alterações</span>
+                          {(histById[x.id] as HistItem[]).map((h, i) => (
+                            <div key={i} style={{ display: "grid", gap: 2, borderLeft: "2px solid var(--border)", paddingLeft: 8 }}>
+                              <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                                {fmtWhen(h.at)} · {h.origin === "conferencia" ? "⚡ conferência grátis" : h.origin === "manual" ? "✍️ manual" : `🤖 IA${h.model ? ` (${MODEL_LABELS[h.model] ?? h.model})` : ""}`}
+                              </div>
+                              {Object.entries(h.changes).map(([f, c]) => (
+                                <div key={f} style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                                  <span style={{ minWidth: 92, color: "var(--muted)" }}>{FIELD_LABEL.get(f) ?? f}</span>
+                                  <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(c.from)}</span>
+                                  <span>→</span>
+                                  <span style={{ color: "var(--accent)", fontWeight: 700 }}>{fmt(c.to)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   )}
                 </div>

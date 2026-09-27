@@ -39,6 +39,28 @@ async function handle(req: Request) {
   const body = await req.json().catch(() => null);
   const db = getServiceClient();
 
+  // 0) histórico de alterações de UM imóvel (grátis): o que a conferência e a
+  // IA mudaram, com data e origem — para o usuário conferir/rever depois.
+  if (body?.history) {
+    const { data } = await db
+      .from("data_audits")
+      .select("changes,applied,model,created_at")
+      .eq("listing_id", body.history)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const hist = ((data ?? []) as { changes: Record<string, { from: unknown; to: unknown }> | null; applied: boolean; model: string | null; created_at: string }[])
+      .map((r) => ({
+        at: r.created_at,
+        origin: r.model === "conferencia" ? "conferencia" : r.model === "manual" ? "manual" : "ia",
+        model: r.model,
+        applied: !!r.applied,
+        changes: r.changes ?? {},
+      }))
+      // só o que foi de fato aplicado (não sugestões da IA que não viraram mudança)
+      .filter((h) => h.applied && Object.keys(h.changes).length > 0);
+    return Response.json({ history: hist });
+  }
+
   // 1) listar imóveis + status de revisão (grátis)
   if (body?.list) {
     const listings = await selectAll<Record<string, unknown>>((from, to) =>
@@ -49,12 +71,15 @@ async function handle(req: Request) {
         .range(from, to),
     );
 
-    // auditorias existentes → última por imóvel (paginado)
-    const audits = await selectAll<{ listing_id: string; applied: boolean; changes: Record<string, unknown>; created_at: string }>(
-      (from, to) => db.from("data_audits").select("listing_id,applied,changes,created_at").order("created_at", { ascending: false }).range(from, to),
+    // auditorias existentes → última por imóvel (paginado). Registros da
+    // conferência grátis (model "conferencia") NÃO contam como "revisado pela
+    // IA" — só entram no histórico, não no estado de revisão.
+    const audits = await selectAll<{ listing_id: string; applied: boolean; changes: Record<string, unknown>; created_at: string; model: string | null }>(
+      (from, to) => db.from("data_audits").select("listing_id,applied,changes,created_at,model").order("created_at", { ascending: false }).range(from, to),
     );
     const last = new Map<string, { applied: boolean; changes: Record<string, unknown>; at: string }>();
     for (const a of audits ?? []) {
+      if (a.model === "conferencia") continue; // não conta como revisão de IA
       const lid = a.listing_id as string;
       if (last.has(lid)) continue; // já é a mais recente (ordenado desc)
       const changes = (a.changes as Record<string, unknown>) ?? {};
