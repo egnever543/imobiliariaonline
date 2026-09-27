@@ -105,6 +105,8 @@ export default function Auditoria() {
   const [freeDone, setFreeDone] = useState(0);
   const [freeTotal, setFreeTotal] = useState(0);
   const [freeSummary, setFreeSummary] = useState<{ updated: number; offair: number } | null>(null);
+  const [moreFilters, setMoreFilters] = useState(false); // filtros secundários
+  const didAutoLoad = useRef(false);
 
   useEffect(() => {
     const t = localStorage.getItem("admin_token") ?? "";
@@ -143,6 +145,11 @@ export default function Auditoria() {
       setMsg("Erro: " + (e as Error).message);
     } finally { setLoading(false); }
   }, [post]);
+
+  // carrega os imóveis sozinho ao abrir (se já houver senha salva) — sem gate
+  useEffect(() => {
+    if (token && !didAutoLoad.current) { didAutoLoad.current = true; load(); }
+  }, [token, load]);
 
   function toggleField(k: string) {
     setSelFields((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -276,6 +283,8 @@ export default function Auditoria() {
     return true;
   });
   const pct = batchTotal ? Math.round((done / batchTotal) * 100) : 0;
+  // quantos o Passo 2 (IA) vai auditar: em "pendentes" só os não revisados; senão todos os visíveis
+  const auditN = filter === "pendentes" ? shown.filter((x) => !x.reviewed).length : shown.length;
 
   const seg = (on: boolean): React.CSSProperties => ({
     padding: "6px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
@@ -340,183 +349,158 @@ export default function Auditoria() {
           <strong> IA revisa</strong> só o que ficou pendente ou divergente (Passo 2).
         </p>
 
-        {/* Config recolhível — sai do caminho depois de preenchida */}
-        <div style={{ ...box, marginTop: 16, padding: configOpen ? 16 : "10px 16px" }}>
+        {/* Esteira — as duas etapas, no topo (o coração da página) */}
+        {items.length > 0 && (
+          <div style={{ ...box, marginTop: 16, padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              {!freeBatch ? (
+                <button className="btn" onClick={runFreePass} disabled={!token || batch || !shown.length}>
+                  ⚡ Passo 1 · Conferir grátis ({shown.length})
+                </button>
+              ) : (
+                <button className="btn" style={{ background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
+              )}
+              <span style={{ color: "var(--muted)", fontSize: 18 }}>→</span>
+              {!batch ? (
+                <button className="btn" onClick={runBatch} disabled={!token || freeBatch || auditN === 0}>
+                  🤖 Passo 2 · Revisar com IA ({auditN})
+                </button>
+              ) : (
+                <button className="btn" style={{ background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
+              )}
+              {filter === "sugestoes" && !batch && !freeBatch && (
+                <button className="btn btn-ghost" onClick={applyAll}
+                  disabled={applyingAll || !shown.some((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0)}>
+                  {applyingAll ? "Aplicando…" : `✓ Aplicar ${shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0).length}`}
+                </button>
+              )}
+              {cost > 0 && <span style={{ marginLeft: "auto", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>US$ {cost.toFixed(4)}</span>}
+            </div>
+            <p style={{ fontSize: 12, color: "var(--muted)", margin: "8px 0 0" }}>
+              O <strong>Passo 1</strong> é grátis (re-lê o anúncio); o <strong>Passo 2</strong> usa IA só no que sobrou. Agem sobre a lista filtrada abaixo.
+            </p>
+            {(freeBatch || batch) && (
+              <div style={{ height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden", marginTop: 10 }}>
+                <div style={{ width: `${freeBatch ? (freeTotal ? Math.round((freeDone / freeTotal) * 100) : 0) : pct}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+              </div>
+            )}
+            {freeBatch && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>{freeDone}/{freeTotal} conferidos (grátis)</div>}
+            {batch && <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>{done}/{batchTotal} revisados (IA)</div>}
+            {!freeBatch && !batch && freeSummary && (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 6 }}>
+                ✅ {freeSummary.updated} atualizados · 🚫 {freeSummary.offair} fora do ar — revise o restante no Passo 2.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Filtros — uma linha; secundários atrás de "mais" */}
+        {items.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, flexWrap: "wrap" }}>
+            <button style={seg(filter === "pendentes")} onClick={() => setFilter("pendentes")}>Pendentes ({pending})</button>
+            <button style={seg(filter === "sem_preco")} onClick={() => setFilter("sem_preco")}>💲 Sem preço ({noPriceCount})</button>
+            <button style={seg(filter === "sem_local")} onClick={() => setFilter("sem_local")}>📍 Sem localização ({noLocalCount})</button>
+            <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
+            <button style={linkBtn} onClick={() => setMoreFilters((v) => !v)}>{moreFilters ? "menos" : "mais ▾"}</button>
+            {moreFilters && (
+              <>
+                <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
+                <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
+                <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Desde ({staleCount})</button>
+                {filter === "desde" && (
+                  <input type="datetime-local" value={cutoff} onChange={(e) => setCutoff(e.target.value)} style={{ ...input }} />
+                )}
+              </>
+            )}
+            <input style={{ ...input, marginLeft: "auto", flex: "0 1 220px", minWidth: 140 }} placeholder="buscar…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+        )}
+
+        {/* ⚙️ Opções (avançado, recolhido) — senha, IA e o que a IA confere */}
+        <div style={{ ...box, marginTop: 12, padding: configOpen ? 16 : "10px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <button onClick={() => setConfigOpen((v) => !v)} style={{ ...linkBtn, display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
               <span style={{ transform: configOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
-              ⚙️ Configuração
+              ⚙️ Opções
             </button>
             {!configOpen && (
               <span style={{ fontSize: 12.5, color: "var(--muted)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <span>Modelo: <strong style={{ color: "var(--ink)" }}>{MODEL_LABELS[model] ?? model}</strong></span>
-                <span>Confiança: <strong style={{ color: "var(--ink)" }}>{Math.round(minConf * 100)}%</strong></span>
+                <span>IA: <strong style={{ color: "var(--ink)" }}>{MODEL_LABELS[model] ?? model}</strong></span>
+                <span>confere {selFields.size === ALL_FIELD_KEYS.length ? "todos os campos" : `${selFields.size} campo(s)`}{checkStatus ? " + situação" : ""}{checkGeo ? " + localização" : ""}</span>
                 <span style={{ color: apply ? "var(--warn)" : "var(--muted)" }}>{apply ? "grava ao auditar" : "só sugere"}</span>
                 {!token && <span style={{ color: "var(--warn)" }}>· falta a senha</span>}
               </span>
             )}
-            <button className="btn btn-ghost" onClick={load} disabled={loading || !token} style={{ marginLeft: "auto" }}>
-              {loading ? "…" : items.length ? "Recarregar" : "Carregar imóveis"}
-            </button>
+            {items.length > 0 && (
+              <button className="btn btn-ghost" onClick={load} disabled={loading || !token} style={{ marginLeft: "auto" }}>
+                {loading ? "…" : "Recarregar"}
+              </button>
+            )}
           </div>
           {configOpen && (
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
-              <div style={{ flex: 2, minWidth: 180 }}>
-                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Senha do painel</label>
-                <input style={{ ...input, width: "100%" }} type="password" value={token} onChange={(e) => saveToken(e.target.value)} placeholder="ADMIN_TOKEN" />
+            <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <div style={{ flex: 2, minWidth: 180 }}>
+                  <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Senha do painel</label>
+                  <input style={{ ...input, width: "100%" }} type="password" value={token} onChange={(e) => saveToken(e.target.value)} placeholder="ADMIN_TOKEN" />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Modelo da IA</label>
+                  <select style={input} value={model} onChange={(e) => setModel(e.target.value)}>
+                    <option value="gpt-5-nano">GPT-5 Nano (mais barato)</option>
+                    <option value="claude-haiku-4-5">Haiku (barato)</option>
+                    <option value="claude-sonnet-5">Sonnet</option>
+                    <option value="claude-opus-5">Opus</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Confiança</label>
+                  <input style={{ ...input, width: 80 }} type="number" min={0} max={1} step={0.05} value={minConf} onChange={(e) => setMinConf(Number(e.target.value))} />
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer", paddingBottom: 8 }}>
+                  <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
+                  gravar ao auditar
+                </label>
               </div>
-              <div>
-                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Modelo</label>
-                <select style={input} value={model} onChange={(e) => setModel(e.target.value)}>
-                  <option value="gpt-5-nano">GPT-5 Nano (mais barato)</option>
-                  <option value="claude-haiku-4-5">Haiku (barato)</option>
-                  <option value="claude-sonnet-5">Sonnet</option>
-                  <option value="claude-opus-5">Opus</option>
-                </select>
+              {/* o que a IA confere (padrão: todos os campos) */}
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gap: 10 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+                  <span style={{ ...grpLabel, paddingTop: 6 }}>O que a IA confere</span>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", flex: 1 }}>
+                    {AUDIT_FIELD_LABELS.map((f) => (
+                      <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
+                    ))}
+                    <button onClick={() => setCheckStatus((v) => !v)} style={chipBtn(checkStatus)}>📌 Situação</button>
+                    <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Localização</button>
+                    <button style={linkBtn} onClick={() => setSelFields(new Set(ALL_FIELD_KEYS))}>todos</button>
+                    <button style={linkBtn} onClick={() => setSelFields(new Set())}>nenhum</button>
+                  </div>
+                </div>
+                {checkGeo && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
+                    localização: marca desvio &gt;
+                    <input type="number" min={50} step={50} value={geoThreshold}
+                      onChange={(e) => setGeoThreshold(Number(e.target.value) || 300)} style={{ ...input, width: 76 }} /> m
+                  </span>
+                )}
               </div>
-              <div>
-                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Confiança</label>
-                <input style={{ ...input, width: 80 }} type="number" min={0} max={1} step={0.05} value={minConf} onChange={(e) => setMinConf(Number(e.target.value))} />
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer", paddingBottom: 8 }}>
-                <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
-                gravar ao auditar
-              </label>
             </div>
           )}
         </div>
 
-        {/* Passo 1 — conferência automática (grátis, sem IA) */}
-        {items.length > 0 && (
-          <div style={{ ...box, marginTop: 10, padding: "14px 16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <strong style={{ fontSize: 14 }}>Passo 1 · Conferir tudo (grátis)</strong>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>re-lê o anúncio: preço, foto, situação e campos que faltavam — sem gastar IA</span>
-              {!freeBatch ? (
-                <button className="btn" style={{ marginLeft: "auto" }} onClick={runFreePass} disabled={!token || batch || !shown.length}>
-                  ⚡ Conferir {shown.length} (grátis)
-                </button>
-              ) : (
-                <button className="btn" style={{ marginLeft: "auto", background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
-              )}
-            </div>
-            {freeBatch && (
-              <div style={{ height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden", marginTop: 10 }}>
-                <div style={{ width: `${freeTotal ? Math.round((freeDone / freeTotal) * 100) : 0}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
-              </div>
-            )}
-            {(freeBatch || freeSummary) && (
-              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>
-                {freeBatch
-                  ? `${freeDone}/${freeTotal} conferidos`
-                  : `✅ ${freeSummary!.updated} atualizados · 🚫 ${freeSummary!.offair} fora do ar. O que sobrou pendente, revise com a IA no Passo 2.`}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Passo 2 — o que auditar com a IA (3 grupos; menos campos, menos tokens) */}
-        {items.length > 0 && (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 16 }}>
-            <strong style={{ fontSize: 14 }}>Passo 2 · Revisar com IA</strong>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>marque só o que conferir</span>
-          </div>
-        )}
-        <div style={{ ...box, marginTop: 10, padding: "14px 16px", display: "grid", gap: 12 }}>
-          {/* Dados do anúncio */}
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <span style={{ ...grpLabel, paddingTop: 6 }}>Dados do anúncio</span>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", flex: 1 }}>
-              {AUDIT_FIELD_LABELS.map((f) => (
-                <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
-              ))}
-              <button style={linkBtn} onClick={() => setSelFields(new Set(ALL_FIELD_KEYS))}>todos</button>
-              <button style={linkBtn} onClick={() => setSelFields(new Set())}>nenhum</button>
-            </div>
-          </div>
-          {/* Situação */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            <span style={grpLabel}>Situação</span>
-            <button onClick={() => setCheckStatus((v) => !v)} style={chipBtn(checkStatus)}>📌 Conferir situação</button>
-            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>vendido / alugado / reservado / fora do ar</span>
-          </div>
-          {/* Localização */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            <span style={grpLabel}>Localização</span>
-            <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Conferir localização</button>
-            {checkGeo && (
-              <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
-                marca desvio &gt;
-                <input type="number" min={50} step={50} value={geoThreshold}
-                  onChange={(e) => setGeoThreshold(Number(e.target.value) || 300)} style={{ ...input, width: 76 }} /> m
-              </span>
-            )}
-          </div>
-        </div>
-
         {msg && <p style={{ marginTop: 12, fontSize: 13.5, color: "var(--muted)" }}>{msg}</p>}
+
+        {/* Estado vazio / carregar */}
+        {items.length === 0 && (
+          <div style={{ ...box, marginTop: 12, padding: 28, textAlign: "center", color: "var(--muted)", fontSize: 14 }}>
+            {loading ? "Carregando imóveis…"
+              : token ? <button className="btn" onClick={load}>Carregar imóveis</button>
+              : "Preencha a senha em ⚙️ Opções para carregar os imóveis."}
+          </div>
+        )}
 
         {items.length > 0 && (
           <>
-            {/* Filtros — eixo 1: estado de revisão */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
-              <span style={grpLabel}>Estado</span>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button style={seg(filter === "pendentes")} onClick={() => setFilter("pendentes")}>Não revisados ({pending})</button>
-                <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
-                <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
-                <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
-              </div>
-            </div>
-            {/* Filtros — eixo 2: dados faltando / por data */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-              <span style={grpLabel}>Dados faltando</span>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                <button style={seg(filter === "sem_preco")} onClick={() => setFilter("sem_preco")}>💲 Sem preço ({noPriceCount})</button>
-                <button style={seg(filter === "sem_local")} onClick={() => setFilter("sem_local")}>📍 Sem localização ({noLocalCount})</button>
-                <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Não auditados desde ({staleCount})</button>
-                {filter === "desde" && (
-                  <input type="datetime-local" value={cutoff} onChange={(e) => setCutoff(e.target.value)} style={{ ...input }} />
-                )}
-              </div>
-            </div>
-
-            {/* Barra de ação — separada dos filtros */}
-            <div style={{ ...box, marginTop: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <input style={{ ...input, flex: 1, minWidth: 160 }} placeholder="buscar por título/bairro…" value={q} onChange={(e) => setQ(e.target.value)} />
-              <span style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
-                {shown.length} {shown.length === 1 ? "imóvel" : "imóveis"}
-              </span>
-              {cost > 0 && <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>· US$ {cost.toFixed(4)}</span>}
-              <span style={{ flexBasis: "100%", height: 0 }} />
-              {filter === "sugestoes" && !batch && (
-                <button className="btn btn-ghost" onClick={applyAll}
-                  disabled={applyingAll || !shown.some((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0)}>
-                  {applyingAll ? "Aplicando…" : `✓ Aplicar ${shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0).length} sugestões`}
-                </button>
-              )}
-              {!batch ? (
-                (() => {
-                  const n = filter === "pendentes" ? shown.filter((x) => !x.reviewed).length : shown.length;
-                  const verb = filter === "pendentes" ? "Revisar"
-                    : (filter === "sem_preco" || filter === "sem_local") ? "Auditar" : "Reauditar";
-                  return (
-                    <button className="btn" onClick={runBatch} disabled={n === 0}>
-                      {verb} {n} em lote
-                    </button>
-                  );
-                })()
-              ) : (
-                <button className="btn" style={{ background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
-              )}
-              {batch && (
-                <div style={{ flexBasis: "100%", height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
-                </div>
-              )}
-              {batch && <span style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)" }}>{done}/{batchTotal} conferidos</span>}
-            </div>
-
             {/* Tabela — linhas de altura estável (badges); detalhe abre ao clicar */}
             <div style={{ ...box, marginTop: 12, padding: 0, overflow: "hidden" }}>
               {shown.slice(0, 400).map((x, i) => {
