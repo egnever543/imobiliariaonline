@@ -1,369 +1,95 @@
 "use client";
 
-// ── Painel de gestão de coletas ───────────────────────────────────────
-// Dispara coletas por clique, um anúncio por vez, com progresso e custo ao
-// vivo. Protegido por senha (ADMIN_TOKEN no servidor).
+// ── Adicionar imóveis (coleta num fluxo único) ────────────────────────
+// Junta o que antes eram 3 páginas (Descobrir imobiliárias, Coletar cidade,
+// Coletar um site) numa só: você digita a senha e a cidade UMA vez e escolhe a
+// etapa por abas. As rotas de API são as mesmas.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Nav from "@/components/Nav";
-
-interface DiscoverResp {
-  cityId: string;
-  agencyId: string | null;
-  total: number;
-  links: string[];
-}
-interface CollectResp {
-  url: string;
-  saved: boolean;
-  error?: string;
-  estimatedCostUSD: number;
-}
+import Descobrir from "./Descobrir";
+import ColetarCidade from "./ColetarCidade";
+import ColetarSite from "./ColetarSite";
 
 const box: React.CSSProperties = {
-  background: "var(--paper)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
-  padding: 20,
-  boxShadow: "var(--shadow-sm)",
+  background: "var(--paper)", border: "1px solid var(--border)",
+  borderRadius: "var(--radius)", padding: 16, boxShadow: "var(--shadow-sm)",
 };
 const input: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 11px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  background: "var(--paper)",
-  color: "var(--ink)",
-  fontSize: 14,
+  padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)",
+  background: "var(--paper)", color: "var(--ink)", fontSize: 14,
 };
-const label: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--muted)",
-  display: "block",
-  marginBottom: 4,
-};
-const btn: React.CSSProperties = {
-  padding: "10px 16px",
-  borderRadius: "var(--radius-sm)",
-  border: "none",
-  background: "var(--accent)",
-  color: "#fff",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
-  boxShadow: "var(--shadow-sm)",
-};
+const label: React.CSSProperties = { fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 };
 
-export default function Admin() {
+type Tab = "descobrir" | "cidade" | "site";
+const TABS: { id: Tab; label: string }[] = [
+  { id: "descobrir", label: "1. Descobrir imobiliárias" },
+  { id: "cidade", label: "2. Coletar a cidade" },
+  { id: "site", label: "＋ Um site" },
+];
+
+export default function AdicionarImoveis() {
   const [token, setToken] = useState("");
-  const [listingUrl, setListingUrl] = useState("");
   const [citySlug, setCitySlug] = useState("itapoa-sc");
   const [cityName, setCityName] = useState("Itapoá");
   const [uf, setUf] = useState("SC");
-  const [agencyName, setAgencyName] = useState("");
-  const [keywords, setKeywords] = useState("terreno");
-  const [model, setModel] = useState("claude-haiku-4-5");
-  const [maxItems, setMaxItems] = useState(3);
+  const [tab, setTab] = useState<Tab>("descobrir");
 
-  const [discovering, setDiscovering] = useState(false);
-  const [disc, setDisc] = useState<DiscoverResp | null>(null);
-  const [collecting, setCollecting] = useState(false);
-  const [done, setDone] = useState(0);
-  const [saved, setSaved] = useState(0);
-  const [cost, setCost] = useState(0);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [msg, setMsg] = useState("");
-  const abort = useRef(false);
+  useEffect(() => setToken(localStorage.getItem("admin_token") ?? ""), []);
+  function saveToken(v: string) { setToken(v); localStorage.setItem("admin_token", v); }
 
-  useEffect(() => {
-    setToken(localStorage.getItem("admin_token") ?? "");
-  }, []);
-  function saveToken(v: string) {
-    setToken(v);
-    localStorage.setItem("admin_token", v);
-  }
+  const city = { token, citySlug, cityName, uf };
 
-  function headers() {
-    return { "content-type": "application/json", "x-admin-token": token };
-  }
-  const log = (s: string) => setLogs((l) => [s, ...l].slice(0, 50));
-
-  async function doDiscover() {
-    setMsg("");
-    setDisc(null);
-    setDone(0);
-    setSaved(0);
-    setCost(0);
-    setLogs([]);
-    setDiscovering(true);
-    try {
-      const kw = keywords.split(",").map((s) => s.trim()).filter(Boolean);
-      const res = await fetch("/api/discover", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          listingUrl,
-          citySlug,
-          cityName,
-          uf,
-          agencyName,
-          keywords: kw,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setDisc(data);
-      setMaxItems(Math.min(3, data.total || 0));
-      setMsg(`Encontrados ${data.total} anúncios. Nenhum custo até aqui.`);
-    } catch (e) {
-      setMsg("Erro: " + (e as Error).message);
-    } finally {
-      setDiscovering(false);
-    }
-  }
-
-  async function doCollect() {
-    if (!disc) return;
-    abort.current = false;
-    setCollecting(true);
-    setDone(0);
-    setSaved(0);
-    setCost(0);
-    setLogs([]);
-    const links = disc.links.slice(0, maxItems);
-    for (const url of links) {
-      if (abort.current) {
-        log("⏹ Interrompido.");
-        break;
-      }
-      try {
-        const res = await fetch("/api/collect", {
-          method: "POST",
-          headers: headers(),
-          body: JSON.stringify({
-            url,
-            cityId: disc.cityId,
-            agencyId: disc.agencyId,
-            listingUrl,
-            model,
-            cityName,
-            uf,
-          }),
-        });
-        const data: CollectResp = await res.json();
-        setDone((n) => n + 1);
-        setCost((c) => c + (data.estimatedCostUSD || 0));
-        if (data.saved) {
-          setSaved((n) => n + 1);
-          log(`✅ ${short(url)}`);
-        } else {
-          log(`⚠️ ${short(url)} — ${data.error ?? "falhou"}`);
-        }
-      } catch (e) {
-        setDone((n) => n + 1);
-        log(`❌ ${short(url)} — ${(e as Error).message}`);
-      }
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    setCollecting(false);
-  }
-
-  const short = (u: string) => (u.length > 48 ? u.slice(0, 48) + "…" : u);
-  const total = disc?.total ?? 0;
-  const pct = maxItems ? Math.round((done / maxItems) * 100) : 0;
+  const seg = (on: boolean): React.CSSProperties => ({
+    padding: "8px 14px", borderRadius: 9, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
+    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+    background: on ? "var(--accent)" : "var(--paper)", color: on ? "#fff" : "var(--muted)",
+  });
 
   return (
     <>
       <Nav />
-      <main style={{ maxWidth: 760, margin: "0 auto", padding: "40px 24px 96px" }}>
-        <a href="/admin" style={{ fontSize: 13, color: "var(--muted)" }}>← painel</a>
-        <h1 style={{ fontSize: 30, margin: "8px 0 4px" }}>Coletar imóveis</h1>
-        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
-          Passo 1: buscar (grátis). Passo 2: coletar, escolhendo quantos e vendo
-          o custo ao vivo. Para varrer a cidade toda, use{" "}
-          <a href="/admin/coletar-cidade">Coletar cidade inteira</a>.
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 20px 96px" }}>
+        <span className="chip">Painel</span>
+        <h1 style={{ fontSize: 28, margin: "12px 0 4px" }}>Adicionar imóveis</h1>
+        <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14.5 }}>
+          Para abrir uma cidade nova, siga <strong>1 → 2</strong>. Para uma imobiliária
+          avulsa, use <strong>Um site</strong>. Preencha a senha e a cidade uma vez só.
         </p>
 
-      {/* Senha */}
-      <div style={{ ...box, marginTop: 20 }}>
-        <label style={label}>Senha do painel (ADMIN_TOKEN)</label>
-        <input
-          style={input}
-          type="password"
-          value={token}
-          onChange={(e) => saveToken(e.target.value)}
-          placeholder="a mesma definida no servidor"
-        />
-      </div>
-
-      {/* Formulário */}
-      <div style={{ ...box, marginTop: 16, display: "grid", gap: 12 }}>
-        <div>
-          <label style={label}>URL da página de terrenos/imóveis</label>
-          <input
-            style={input}
-            value={listingUrl}
-            onChange={(e) => setListingUrl(e.target.value)}
-            placeholder="https://imobiliaria.com.br/terrenos"
-          />
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 2 }}>
-            <label style={label}>Imobiliária</label>
-            <input
-              style={input}
-              value={agencyName}
-              onChange={(e) => setAgencyName(e.target.value)}
-              placeholder="Nome da imobiliária"
-            />
+        {/* Senha + cidade (compartilhados por todas as abas) */}
+        <div style={{ ...box, marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 2, minWidth: 160 }}>
+            <label style={label}>Senha do painel</label>
+            <input style={{ ...input, width: "100%" }} type="password" value={token}
+              onChange={(e) => saveToken(e.target.value)} placeholder="ADMIN_TOKEN" />
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Palavras no link</label>
-            <input
-              style={input}
-              value={keywords}
-              onChange={(e) => setKeywords(e.target.value)}
-              placeholder="terreno,imovel"
-            />
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12 }}>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 120 }}>
             <label style={label}>Cidade (slug)</label>
-            <input
-              style={input}
-              value={citySlug}
-              onChange={(e) => setCitySlug(e.target.value)}
-            />
+            <input style={{ ...input, width: "100%" }} value={citySlug} onChange={(e) => setCitySlug(e.target.value)} placeholder="itapoa-sc" />
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 110 }}>
             <label style={label}>Cidade (nome)</label>
-            <input
-              style={input}
-              value={cityName}
-              onChange={(e) => setCityName(e.target.value)}
-            />
+            <input style={{ ...input, width: "100%" }} value={cityName} onChange={(e) => setCityName(e.target.value)} placeholder="Itapoá" />
           </div>
-          <div style={{ width: 70 }}>
+          <div style={{ width: 64 }}>
             <label style={label}>UF</label>
-            <input
-              style={input}
-              value={uf}
-              onChange={(e) => setUf(e.target.value)}
-            />
+            <input style={{ ...input, width: "100%" }} value={uf} onChange={(e) => setUf(e.target.value)} placeholder="SC" />
           </div>
         </div>
-        <button
-          style={{ ...btn, opacity: discovering || !listingUrl ? 0.6 : 1 }}
-          onClick={doDiscover}
-          disabled={discovering || !listingUrl}
-        >
-          {discovering ? "Buscando…" : "1. Buscar anúncios (grátis)"}
-        </button>
-      </div>
 
-      {msg && (
-        <p style={{ marginTop: 12, fontSize: 14, color: "var(--muted)" }}>{msg}</p>
-      )}
+        {/* Abas */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+          {TABS.map((t) => (
+            <button key={t.id} style={seg(tab === t.id)} onClick={() => setTab(t.id)}>{t.label}</button>
+          ))}
+        </div>
 
-      {/* Coleta */}
-      {disc && total > 0 && (
-        <div style={{ ...box, marginTop: 16, display: "grid", gap: 12 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <label style={label}>Quantos coletar (de {total})</label>
-              <input
-                style={input}
-                type="number"
-                min={1}
-                max={total}
-                value={maxItems}
-                onChange={(e) => setMaxItems(Number(e.target.value))}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={label}>Modelo da IA</label>
-              <select
-                style={input}
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                <option value="claude-haiku-4-5">Haiku (mais barato)</option>
-                <option value="claude-sonnet-5">Sonnet (meio-termo)</option>
-                <option value="claude-opus-5">Opus (máxima qualidade)</option>
-              </select>
-            </div>
-          </div>
-          {!collecting ? (
-            <button style={btn} onClick={doCollect}>
-              2. Coletar {maxItems} anúncio{maxItems > 1 ? "s" : ""}
-            </button>
-          ) : (
-            <button
-              style={{ ...btn, background: "var(--warn)" }}
-              onClick={() => (abort.current = true)}
-            >
-              ⏹ Parar
-            </button>
-          )}
-
-          {/* Progresso */}
-          {(collecting || done > 0) && (
-            <div>
-              <div
-                style={{
-                  height: 8,
-                  background: "var(--border)",
-                  borderRadius: 4,
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${pct}%`,
-                    height: "100%",
-                    background: "var(--accent)",
-                    transition: "width .2s",
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginTop: 8,
-                  fontSize: 13,
-                }}
-              >
-                <span>
-                  {done}/{maxItems} · {saved} salvos
-                </span>
-                <span style={{ fontWeight: 600 }}>
-                  custo: US$ {cost.toFixed(4)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {logs.length > 0 && (
-            <div
-              style={{
-                fontFamily: "ui-monospace, monospace",
-                fontSize: 12,
-                color: "var(--muted)",
-                maxHeight: 180,
-                overflow: "auto",
-                borderTop: "1px solid var(--border)",
-                paddingTop: 8,
-              }}
-            >
-              {logs.map((l, i) => (
-                <div key={i}>{l}</div>
-              ))}
-            </div>
-          )}
-          </div>
-        )}
+        <div style={{ marginTop: 16 }}>
+          {tab === "descobrir" && <Descobrir {...city} />}
+          {tab === "cidade" && <ColetarCidade token={token} citySlug={citySlug} />}
+          {tab === "site" && <ColetarSite {...city} />}
+        </div>
       </main>
     </>
   );
