@@ -8,7 +8,7 @@
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/paginate";
-import { refreshOne, REFRESH_COLS } from "@/lib/ingest/refresh";
+import { refreshOne, REFRESH_COLS, REFRESH_COLS_BASE } from "@/lib/ingest/refresh";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,11 +41,12 @@ async function handle(req: Request) {
     return Response.json({ error: "Informe listingId (ou list: true)." }, { status: 400 });
   }
 
-  const { data: row, error: rowErr } = await db
-    .from("listings")
-    .select(REFRESH_COLS)
-    .eq("id", body.listingId)
-    .maybeSingle();
+  // tenta com todas as colunas; se falhar (beach_distance_m ainda não existe no
+  // banco), tenta sem ela — o refresh não deve depender da migration 0009.
+  const readRow = (cols: string) =>
+    db.from("listings").select(cols).eq("id", body.listingId).maybeSingle();
+  let { data: row, error: rowErr } = await readRow(REFRESH_COLS);
+  if (rowErr) ({ data: row, error: rowErr } = await readRow(REFRESH_COLS_BASE));
   if (rowErr) return Response.json({ error: rowErr.message }, { status: 500 });
   if (!row) return Response.json({ error: "Imóvel não encontrado." }, { status: 404 });
 

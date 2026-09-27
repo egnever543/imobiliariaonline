@@ -16,7 +16,7 @@
 import { isAuthorized } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase/server";
 import { enumerateAgency, ingestOne } from "@/lib/ingest/pipeline";
-import { refreshOne, REFRESH_COLS } from "@/lib/ingest/refresh";
+import { refreshOne, REFRESH_COLS, REFRESH_COLS_BASE } from "@/lib/ingest/refresh";
 
 export const runtime = "nodejs";
 // Cron é pesado (muitas leituras de página). No plano Pro vai até 300s; no
@@ -93,12 +93,15 @@ async function collectNew(db: DB, deadline: number, cap: number) {
 
 // ── Fase 2: revisitar os ativos mais desatualizados ────────────────────
 async function updateStale(db: DB, deadline: number, cap: number) {
-  const { data } = await db
+  const readStale = (cols: string) => db
     .from("listings")
-    .select(REFRESH_COLS)
+    .select(cols)
     .eq("status", "ativo")
     .order("last_checked_at", { ascending: true, nullsFirst: true })
     .limit(cap);
+  // fallback sem beach_distance_m se a coluna ainda não existe (migration 0009)
+  let { data, error } = await readStale(REFRESH_COLS);
+  if (error) ({ data } = await readStale(REFRESH_COLS_BASE));
 
   let updated = 0, sold = 0, rented = 0, gone = 0, changed = 0;
   const rows = (data ?? []) as unknown as (Record<string, unknown> & { id: string; source_url: string })[];

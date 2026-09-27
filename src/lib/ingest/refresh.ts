@@ -16,8 +16,13 @@ export const FILL_IF_MISSING = [
   "suites", "parking", "neighborhood", "image_url", "beach_distance_m",
 ] as const;
 
-// colunas mínimas que o refresh precisa ler de cada imóvel
+// colunas mínimas que o refresh precisa ler de cada imóvel.
+// REFRESH_COLS_BASE não pede `beach_distance_m` — usado como fallback quando a
+// coluna ainda não existe no banco (migration 0009 não rodada), para o refresh
+// não quebrar. O refreshOne só mexe nos campos que vierem na linha.
 export const REFRESH_COLS = "id,source_url,price," + FILL_IF_MISSING.join(",");
+export const REFRESH_COLS_BASE =
+  "id,source_url,price," + FILL_IF_MISSING.filter((f) => f !== "beach_distance_m").join(",");
 
 export interface RefreshOutcome {
   id: string;
@@ -58,8 +63,10 @@ export async function refreshOne(
     patch.price = newPrice;
   }
 
-  // completa o que faltava
+  // completa o que faltava (só os campos que vieram na linha — se a coluna
+  // beach_distance_m não existe no banco, ela nem é selecionada e é ignorada)
   for (const f of FILL_IF_MISSING) {
+    if (!(f in row)) continue;
     const currentVal = row[f];
     const newVal = s[f];
     if ((currentVal === null || currentVal === undefined || currentVal === "") && newVal != null && newVal !== "") {
