@@ -12,7 +12,7 @@ export const EMPTY: ExtractedListing = {
   accepts_permuta: null, description: null, external_code: null,
   bedrooms: null, bathrooms: null, suites: null, parking: null,
   built_area_m2: null, condo_fee: null, is_launch: null,
-  image_url: null,
+  image_url: null, beach_distance_m: null,
 };
 
 /** Preenche em `base` os campos ainda nulos com os de `src`. */
@@ -128,6 +128,31 @@ function priceFromText(html: string): number | null {
   return pool.reduce((max, c) => (c.value > max ? c.value : max), 0) || null;
 }
 
+// ── Distância do mar no TEXTO (grátis) ──
+// As imobiliárias já escrevem "a 800 m do mar" / "a 300 metros da praia" /
+// "a 2 km do mar". É o número que o comprador lê — e evita o viés de medir até
+// uma baía/canal por engano. Pega a MENOR distância citada (a mais relevante ao
+// imóvel) e converte km → m. Beneficia coleta E refresh (que não usam IA).
+function beachDistanceFromText(html: string): number | null {
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ");
+  const re = /(\d{1,4}(?:[.,]\d{1,3})?)\s*(km|quil[oô]metros?|metros|m)\b\.?\s*(?:d[oa]s?\s+)?(mar|praia|oceano|areia)\b/gi;
+  const cands: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    let n = brNum(m[1]);
+    if (n == null) continue;
+    const unit = m[2].toLowerCase();
+    if (unit.startsWith("k") || unit.startsWith("q")) n *= 1000;
+    if (n > 0 && n <= 20_000) cands.push(n); // ignora absurdos (> 20 km)
+  }
+  return cands.length ? Math.min(...cands) : null;
+}
+
 // ── Pistas da URL (tipo, quartos, vagas, bairro) ──
 function fromUrl(url: string): Partial<ExtractedListing> {
   let u = url;
@@ -165,6 +190,11 @@ export function extractStructured(html: string, url: string): ExtractedListing {
   if (out.price == null) {
     const p = priceFromText(html);
     if (p != null) out.price = p;
+  }
+  // distância do mar declarada no texto do anúncio
+  if (out.beach_distance_m == null) {
+    const b = beachDistanceFromText(html);
+    if (b != null) out.beach_distance_m = b;
   }
   out = mergeFill(out, fromUrl(url));
   return out;

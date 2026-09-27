@@ -8,6 +8,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/paginate";
 import { boundsRobust } from "@/lib/ingest/pois";
 import { collectCoastlineOsm } from "@/lib/ingest/coastline_osm";
+import { collectBeachesOsm } from "@/lib/ingest/beach_osm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -38,19 +39,24 @@ export async function POST(req: Request) {
     const bbox = boundsRobust(pts.map((p) => ({ lat: p.lat as number, lng: p.lng as number })));
     if (!bbox) return Response.json({ error: "Cidade sem imóveis geolocalizados para definir a área." }, { status: 400 });
 
-    // coleta (uma chamada Overpass)
+    // coleta (linha de costa + praias de areia)
     const { ways, points } = await collectCoastlineOsm(bbox);
+    const { ways: beaches, points: beachPoints } = await collectBeachesOsm(bbox);
 
     // salva (upsert por cidade)
     const { error } = await db.from("city_coastlines").upsert(
-      { city_id: cityId, ways, point_count: points, source: "osm", updated_at: new Date().toISOString() },
+      {
+        city_id: cityId, ways, point_count: points,
+        beaches, beach_point_count: beachPoints,
+        source: "osm", updated_at: new Date().toISOString(),
+      },
       { onConflict: "city_id" },
     );
     if (error) return Response.json({ error: error.message }, { status: 500 });
 
     return Response.json({
-      ok: true, cityId, ways: ways.length, points,
-      note: points === 0 ? "Nenhuma costa encontrada nessa área (cidade sem mar?)." : undefined,
+      ok: true, cityId, ways: ways.length, points, beaches: beaches.length, beachPoints,
+      note: points === 0 && beachPoints === 0 ? "Nenhuma costa nem praia encontrada nessa área (cidade sem mar?)." : undefined,
     });
   } catch (e) {
     return Response.json({ error: (e as Error).message || "Falha ao coletar a costa." }, { status: 500 });

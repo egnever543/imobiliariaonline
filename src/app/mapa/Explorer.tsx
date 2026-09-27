@@ -38,6 +38,7 @@ export interface Listing {
   lat: number | null;
   lng: number | null;
   geo_method: string | null;
+  beach_distance_m: number | null;
   accepts_permuta: boolean | null;
   is_launch: boolean | null;
   image_url: string | null;
@@ -116,9 +117,10 @@ function Photo({
   );
 }
 
-export default function Explorer({ listings, pois = [], coastline }: { listings: Listing[]; pois?: PoiPoint[]; coastline?: [number, number][][] }) {
+export default function Explorer({ listings, pois = [], coastline, beaches }: { listings: Listing[]; pois?: PoiPoint[]; coastline?: [number, number][][]; beaches?: [number, number][][] }) {
   // costa coletada da cidade (OSM); cai na linha fixa se ainda não coletada
   const coast = useMemo<[number, number][][]>(() => (coastline?.length ? coastline : [ITAPOA_COASTLINE]), [coastline]);
+  const beach = useMemo<[number, number][][]>(() => beaches ?? [], [beaches]);
   const agencies = useMemo(
     () => [...new Set(listings.map((d) => d.agency))].sort(),
     [listings],
@@ -217,16 +219,18 @@ export default function Explorer({ listings, pois = [], coastline }: { listings:
       id: d.id, price: d.price, area_total_m2: d.area_total_m2,
       lat: d.lat, lng: d.lng, geo_method: d.geo_method,
       neighborhood: d.neighborhood, type: d.type,
+      beach_distance_m: d.beach_distance_m,
     }));
     const res = scoreListings(scorable, {
       weights,
       coastline: coast,
+      beaches: beach,
       pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
     });
     const m: Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }> = {};
     res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors, insight: r.insight }));
     return m;
-  }, [scoreOn, filtered, weights, pois, coast]);
+  }, [scoreOn, filtered, weights, pois, coast, beach]);
 
   const visible = useMemo(() => {
     if (!scoreOn) return filtered;
@@ -708,7 +712,7 @@ export default function Explorer({ listings, pois = [], coastline }: { listings:
                 const reasons = buildReasons({
                   lat: selectedListing.lat, lng: selectedListing.lng, insight: ins,
                   pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
-                  coastline: coast,
+                  coastline: coast, beaches: beach, declaredBeachM: selectedListing.beach_distance_m,
                 });
                 return (
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--accent-weak)", border: "1px solid var(--border)" }}>

@@ -40,6 +40,12 @@ const AUDIT_FIELD_LABELS: { k: string; label: string }[] = [
   { k: "is_launch", label: "Lançamento" }, { k: "accepts_permuta", label: "Permuta" },
 ];
 const ALL_FIELD_KEYS = AUDIT_FIELD_LABELS.map((f) => f.k);
+const FIELD_LABEL = new Map(AUDIT_FIELD_LABELS.map((f) => [f.k, f.label]));
+const MODEL_LABELS: Record<string, string> = {
+  "gpt-5-nano": "GPT-5 Nano", "claude-haiku-4-5": "Haiku", "claude-sonnet-5": "Sonnet", "claude-opus-5": "Opus",
+};
+// distância legível (m/km)
+const fmtDist = (m: number) => (m >= 1000 ? (m / 1000).toFixed(1) + " km" : Math.round(m) + " m");
 // chaves de coordenada exibidas via bloco de localização (não na lista crua)
 const GEO_KEYS = new Set(["lat", "lng", "geo_method"]);
 interface GeoInfo {
@@ -66,10 +72,13 @@ const fmtWhen = (iso?: string | null) => {
 
 export default function Auditoria() {
   const [token, setToken] = useState("");
-  const [model, setModel] = useState("claude-haiku-4-5");
+  const [model, setModel] = useState("gpt-5-nano");
   const [minConf, setMinConf] = useState(0.7);
   const [apply, setApply] = useState(false);
   const [applyingAll, setApplyingAll] = useState(false);
+  // config recolhível (sai do caminho depois de configurada) + linhas expansíveis
+  const [configOpen, setConfigOpen] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // o que auditar: campos de texto marcados + localização (com limite de desvio)
   const [selFields, setSelFields] = useState<Set<string>>(new Set(ALL_FIELD_KEYS));
   const [checkGeo, setCheckGeo] = useState(false);
@@ -89,7 +98,11 @@ export default function Auditoria() {
   const [cost, setCost] = useState(0);
   const abort = useRef(false);
 
-  useEffect(() => { setToken(localStorage.getItem("admin_token") ?? ""); }, []);
+  useEffect(() => {
+    const t = localStorage.getItem("admin_token") ?? "";
+    setToken(t);
+    if (!t) setConfigOpen(true); // sem senha ainda → abre a config para preencher
+  }, []);
   // deep-link do painel: ?falta=preco|local → já filtra e mira o campo certo
   useEffect(() => {
     try {
@@ -125,6 +138,9 @@ export default function Auditoria() {
 
   function toggleField(k: string) {
     setSelFields((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  }
+  function toggleExpand(id: string) {
+    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
 
   // audita 1 imóvel e atualiza sua linha
@@ -229,6 +245,41 @@ export default function Auditoria() {
   const linkBtn: React.CSSProperties = {
     background: "transparent", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0,
   };
+  const grpLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em", minWidth: 118 };
+
+  // resumo em badges do que a auditoria encontrou (linha fechada)
+  type Tone = "warn" | "accent" | "muted" | "ok";
+  const badgeStyle = (t: Tone): React.CSSProperties => ({
+    fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap",
+    background: t === "muted" ? "transparent" : "color-mix(in srgb, var(--accent) 10%, transparent)",
+    color: t === "warn" ? "var(--warn)" : t === "ok" ? "var(--ok)" : t === "muted" ? "var(--muted)" : "var(--accent)",
+    border: t === "muted" ? "1px solid var(--border)" : "1px solid transparent",
+  });
+  function rowBadges(x: Item): { key: string; label: string; tone: Tone }[] {
+    const out: { key: string; label: string; tone: Tone }[] = [];
+    const ch = x.changes ?? {};
+    const tone: Tone = x.applied ? "accent" : "warn";
+    for (const [f, c] of Object.entries(ch)) {
+      if (GEO_KEYS.has(f) || f === "status") continue;
+      out.push({ key: f, label: `${FIELD_LABEL.get(f) ?? f}: ${fmt(c.to)}`, tone });
+    }
+    if (ch.status) out.push({ key: "status", label: `📌 ${fmt(ch.status.to)}`, tone });
+    if (ch.lat && x.geoInfo) {
+      out.push({ key: "geo", label: `📍 ${x.geoInfo.distanceM != null ? "desvio " + fmtDist(x.geoInfo.distanceM) : "novo ponto"}`, tone });
+    }
+    // veredictos "fix" abaixo do limiar (não viraram correção)
+    const changeKeys = new Set(Object.keys(ch));
+    const weak = (x.verdicts ?? []).filter((v) => v.status === "fix" && !changeKeys.has(v.field));
+    if (weak.length) out.push({ key: "weak", label: `⚠️ ${weak.length} possíve${weak.length > 1 ? "is" : "l"}`, tone: "muted" });
+    if (x.priceProbe && x.priceProbe.found == null && !ch.price) out.push({ key: "noprice", label: "💲 sem preço no anúncio", tone: "muted" });
+    if (x.error) out.push({ key: "err", label: "⚠️ erro", tone: "warn" });
+    // nada mudou e já revisado → confere
+    if (!out.length && x.reviewed && !x.busy) out.push({ key: "ok", label: "✓ confere", tone: "ok" });
+    return out;
+  }
+  const hasDetail = (x: Item) =>
+    !!(x.changes && Object.keys(x.changes).length) || !!(x.verdicts && x.verdicts.length) ||
+    !!x.geoInfo || !!x.priceProbe || !!x.statusProbe || !!x.error;
 
   return (
     <>
@@ -238,55 +289,81 @@ export default function Auditoria() {
         <h1 style={{ fontSize: 28, margin: "12px 0 4px" }}>Auditoria por IA</h1>
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14.5 }}>
           A IA lê cada anúncio, compara com os dados salvos e corrige o que
-          estiver errado. Revise um a um ou dispare os pendentes em lote.
+          estiver errado. Escolha o que conferir, revise um a um ou em lote.
         </p>
 
-        {/* Configuração */}
-        <div style={{ ...box, marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ flex: 2, minWidth: 180 }}>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Senha do painel</label>
-            <input style={{ ...input, width: "100%" }} type="password" value={token} onChange={(e) => saveToken(e.target.value)} placeholder="ADMIN_TOKEN" />
+        {/* Config recolhível — sai do caminho depois de preenchida */}
+        <div style={{ ...box, marginTop: 16, padding: configOpen ? 16 : "10px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <button onClick={() => setConfigOpen((v) => !v)} style={{ ...linkBtn, display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+              <span style={{ transform: configOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+              ⚙️ Configuração
+            </button>
+            {!configOpen && (
+              <span style={{ fontSize: 12.5, color: "var(--muted)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <span>Modelo: <strong style={{ color: "var(--ink)" }}>{MODEL_LABELS[model] ?? model}</strong></span>
+                <span>Confiança: <strong style={{ color: "var(--ink)" }}>{Math.round(minConf * 100)}%</strong></span>
+                <span style={{ color: apply ? "var(--warn)" : "var(--muted)" }}>{apply ? "grava ao auditar" : "só sugere"}</span>
+                {!token && <span style={{ color: "var(--warn)" }}>· falta a senha</span>}
+              </span>
+            )}
+            <button className="btn btn-ghost" onClick={load} disabled={loading || !token} style={{ marginLeft: "auto" }}>
+              {loading ? "…" : items.length ? "Recarregar" : "Carregar imóveis"}
+            </button>
           </div>
-          <div>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Modelo</label>
-            <select style={input} value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="gpt-5-nano">GPT-5 Nano (mais barato)</option>
-              <option value="claude-haiku-4-5">Haiku (barato)</option>
-              <option value="claude-sonnet-5">Sonnet</option>
-              <option value="claude-opus-5">Opus</option>
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Confiança</label>
-            <input style={{ ...input, width: 80 }} type="number" min={0} max={1} step={0.05} value={minConf} onChange={(e) => setMinConf(Number(e.target.value))} />
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer", paddingBottom: 8 }}>
-            <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
-            aplicar
-          </label>
-          <button className="btn btn-ghost" onClick={load} disabled={loading || !token} style={{ paddingBottom: 8 }}>
-            {loading ? "…" : items.length ? "Recarregar" : "Carregar imóveis"}
-          </button>
+          {configOpen && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
+              <div style={{ flex: 2, minWidth: 180 }}>
+                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Senha do painel</label>
+                <input style={{ ...input, width: "100%" }} type="password" value={token} onChange={(e) => saveToken(e.target.value)} placeholder="ADMIN_TOKEN" />
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Modelo</label>
+                <select style={input} value={model} onChange={(e) => setModel(e.target.value)}>
+                  <option value="gpt-5-nano">GPT-5 Nano (mais barato)</option>
+                  <option value="claude-haiku-4-5">Haiku (barato)</option>
+                  <option value="claude-sonnet-5">Sonnet</option>
+                  <option value="claude-opus-5">Opus</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>Confiança</label>
+                <input style={{ ...input, width: 80 }} type="number" min={0} max={1} step={0.05} value={minConf} onChange={(e) => setMinConf(Number(e.target.value))} />
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer", paddingBottom: 8 }}>
+                <input type="checkbox" checked={apply} onChange={(e) => setApply(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
+                gravar ao auditar
+              </label>
+            </div>
+          )}
         </div>
 
-        {/* O que auditar (menos campos = menos tokens) */}
-        <div style={{ ...box, marginTop: 10, padding: "12px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-            <strong style={{ fontSize: 13 }}>O que auditar</strong>
-            <button style={linkBtn} onClick={() => setSelFields(new Set(ALL_FIELD_KEYS))}>todos</button>
-            <button style={linkBtn} onClick={() => setSelFields(new Set())}>nenhum</button>
-            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>marque só o necessário — menos campos, menos tokens</span>
+        {/* O que auditar — 3 grupos (marque só o necessário; menos campos, menos tokens) */}
+        <div style={{ ...box, marginTop: 10, padding: "14px 16px", display: "grid", gap: 12 }}>
+          {/* Dados do anúncio */}
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <span style={{ ...grpLabel, paddingTop: 6 }}>Dados do anúncio</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", flex: 1 }}>
+              {AUDIT_FIELD_LABELS.map((f) => (
+                <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
+              ))}
+              <button style={linkBtn} onClick={() => setSelFields(new Set(ALL_FIELD_KEYS))}>todos</button>
+              <button style={linkBtn} onClick={() => setSelFields(new Set())}>nenhum</button>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-            {AUDIT_FIELD_LABELS.map((f) => (
-              <button key={f.k} onClick={() => toggleField(f.k)} style={chipBtn(selFields.has(f.k))}>{f.label}</button>
-            ))}
-            <span style={{ width: 1, height: 20, background: "var(--border)", margin: "0 2px" }} />
-            <button onClick={() => setCheckStatus((v) => !v)} style={chipBtn(checkStatus)}>📌 Situação</button>
-            <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Localização</button>
+          {/* Situação */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <span style={grpLabel}>Situação</span>
+            <button onClick={() => setCheckStatus((v) => !v)} style={chipBtn(checkStatus)}>📌 Conferir situação</button>
+            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>vendido / alugado / reservado / fora do ar</span>
+          </div>
+          {/* Localização */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <span style={grpLabel}>Localização</span>
+            <button onClick={() => setCheckGeo((v) => !v)} style={chipBtn(checkGeo)}>📍 Conferir localização</button>
             {checkGeo && (
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
-                desvio &gt;
+                marca desvio &gt;
                 <input type="number" min={50} step={50} value={geoThreshold}
                   onChange={(e) => setGeoThreshold(Number(e.target.value) || 300)} style={{ ...input, width: 76 }} /> m
               </span>
@@ -298,28 +375,41 @@ export default function Auditoria() {
 
         {items.length > 0 && (
           <>
-            {/* Resumo + ações */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 6 }}>
+            {/* Filtros — eixo 1: estado de revisão */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+              <span style={grpLabel}>Estado</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <button style={seg(filter === "pendentes")} onClick={() => setFilter("pendentes")}>Não revisados ({pending})</button>
                 <button style={seg(filter === "sugestoes")} onClick={() => setFilter("sugestoes")}>💡 Com sugestão ({suggestionCount})</button>
                 <button style={seg(filter === "revisados")} onClick={() => setFilter("revisados")}>Revisados ({reviewed})</button>
-                <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Desde ({staleCount})</button>
-                <button style={seg(filter === "sem_preco")} onClick={() => setFilter("sem_preco")}>💲 Sem preço ({noPriceCount})</button>
-                <button style={seg(filter === "sem_local")} onClick={() => setFilter("sem_local")}>📍 Sem localização ({noLocalCount})</button>
                 <button style={seg(filter === "todos")} onClick={() => setFilter("todos")}>Todos ({total})</button>
               </div>
-              {filter === "desde" && (
-                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)" }}>
-                  não auditados desde
+            </div>
+            {/* Filtros — eixo 2: dados faltando / por data */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <span style={grpLabel}>Dados faltando</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <button style={seg(filter === "sem_preco")} onClick={() => setFilter("sem_preco")}>💲 Sem preço ({noPriceCount})</button>
+                <button style={seg(filter === "sem_local")} onClick={() => setFilter("sem_local")}>📍 Sem localização ({noLocalCount})</button>
+                <button style={seg(filter === "desde")} onClick={() => setFilter("desde")}>🕓 Não auditados desde ({staleCount})</button>
+                {filter === "desde" && (
                   <input type="datetime-local" value={cutoff} onChange={(e) => setCutoff(e.target.value)} style={{ ...input }} />
-                </span>
-              )}
-              <input style={{ ...input, flex: 1, minWidth: 140 }} placeholder="buscar por título/bairro…" value={q} onChange={(e) => setQ(e.target.value)} />
+                )}
+              </div>
+            </div>
+
+            {/* Barra de ação — separada dos filtros */}
+            <div style={{ ...box, marginTop: 12, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <input style={{ ...input, flex: 1, minWidth: 160 }} placeholder="buscar por título/bairro…" value={q} onChange={(e) => setQ(e.target.value)} />
+              <span style={{ fontSize: 12.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
+                {shown.length} {shown.length === 1 ? "imóvel" : "imóveis"}
+              </span>
+              {cost > 0 && <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap" }}>· US$ {cost.toFixed(4)}</span>}
+              <span style={{ flexBasis: "100%", height: 0 }} />
               {filter === "sugestoes" && !batch && (
-                <button className="btn" onClick={applyAll}
+                <button className="btn btn-ghost" onClick={applyAll}
                   disabled={applyingAll || !shown.some((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0)}>
-                  {applyingAll ? "Aplicando…" : `Aplicar ${shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0).length} sugestões`}
+                  {applyingAll ? "Aplicando…" : `✓ Aplicar ${shown.filter((x) => !x.applied && x.changes && Object.keys(x.changes).length > 0).length} sugestões`}
                 </button>
               )}
               {!batch ? (
@@ -336,61 +426,80 @@ export default function Auditoria() {
               ) : (
                 <button className="btn" style={{ background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
               )}
+              {batch && (
+                <div style={{ flexBasis: "100%", height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+                </div>
+              )}
+              {batch && <span style={{ flexBasis: "100%", fontSize: 12, color: "var(--muted)" }}>{done}/{batchTotal} conferidos</span>}
             </div>
 
-            {(batch || cost > 0) && (
-              <div style={{ ...box, marginTop: 12, padding: 12 }}>
-                {batch && (
-                  <div style={{ height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden", marginBottom: 8 }}>
-                    <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <span>{batch ? `${done}/${batchTotal} conferidos` : "sessão"}</span>
-                  <span style={{ fontWeight: 600 }}>custo: US$ {cost.toFixed(4)}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Tabela */}
+            {/* Tabela — linhas de altura estável (badges); detalhe abre ao clicar */}
             <div style={{ ...box, marginTop: 12, padding: 0, overflow: "hidden" }}>
-              {shown.slice(0, 400).map((x, i) => (
-                <div key={x.id} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                  borderTop: i === 0 ? "none" : "1px solid var(--border)",
-                }}>
-                  {/* status */}
-                  <span title={x.reviewed ? "revisado" : "não revisado"} style={{
-                    width: 9, height: 9, borderRadius: 99, flexShrink: 0,
-                    background: x.reviewed ? "var(--ok)" : "var(--border)",
-                  }} />
-                  {/* info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {x.title ?? x.type ?? "Imóvel"}
+              {shown.slice(0, 400).map((x, i) => {
+                const isOpen = expanded.has(x.id);
+                const badges = rowBadges(x);
+                const canExpand = hasDetail(x);
+                const canApply = !!(x.changes && Object.keys(x.changes).length > 0 && !x.applied && !x.busy);
+                return (
+                <div key={x.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                  {/* linha fechada */}
+                  <div
+                    onClick={() => canExpand && toggleExpand(x.id)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                      cursor: canExpand ? "pointer" : "default",
+                    }}>
+                    {/* status */}
+                    <span title={x.reviewed ? "revisado" : "não revisado"} style={{
+                      width: 9, height: 9, borderRadius: 99, flexShrink: 0,
+                      background: x.reviewed ? "var(--ok)" : "var(--border)",
+                    }} />
+                    {/* info + badges */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {x.title ?? x.type ?? "Imóvel"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 1 }}>
+                        <span style={{ whiteSpace: "nowrap" }}>{[x.type, x.neighborhood, money(x.price)].filter(Boolean).join(" · ")}</span>
+                        {badges.map((b) => (
+                          <span key={b.key} style={badgeStyle(b.tone)}>{b.label}</span>
+                        ))}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                      <span>{[x.type, x.neighborhood, money(x.price)].filter(Boolean).join(" · ")}</span>
-                      {x.lastAt && <span style={{ opacity: 0.85 }}>· auditado {fmtWhen(x.lastAt)}</span>}
+                    {/* aplicar sugestões (sem gastar IA) */}
+                    {canApply && (
+                      <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
+                        onClick={(e) => { e.stopPropagation(); applyOne(x); }} disabled={batch}>
+                        Aplicar
+                      </button>
+                    )}
+                    {/* ação */}
+                    <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
+                      onClick={(e) => { e.stopPropagation(); auditOne(x); }} disabled={x.busy || batch}>
+                      {x.busy ? "…" : x.reviewed ? "Rever" : "Revisar"}
+                    </button>
+                    {canExpand && (
+                      <span style={{ color: "var(--muted)", fontSize: 12, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+                    )}
+                  </div>
+
+                  {/* detalhe (expandido) */}
+                  {isOpen && (
+                  <div style={{ padding: "0 14px 12px 33px", display: "grid", gap: 6 }}>
+                    <div style={{ fontSize: 12, color: "var(--muted)", display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                      {x.lastAt && <span>auditado {fmtWhen(x.lastAt)}</span>}
                       {x.source_url && (
-                        <a href={x.source_url} target="_blank" rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          style={{ fontSize: 11.5, fontWeight: 600 }}>
-                          ver anúncio ↗
-                        </a>
+                        <a href={x.source_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11.5, fontWeight: 600 }}>ver anúncio ↗</a>
                       )}
-                      <a href={`/mapa?imovel=${x.id}`} target="_blank" rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ fontSize: 11.5, fontWeight: 600 }}>
-                        ver no mapa ↗
-                      </a>
+                      <a href={`/mapa?imovel=${x.id}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11.5, fontWeight: 600 }}>ver no mapa ↗</a>
                     </div>
-                    {/* correções da última auditoria (sessão atual) — sem as coordenadas cruas */}
+                    {/* correções de texto (sem coordenadas cruas nem status) */}
                     {x.changes && Object.keys(x.changes).some((f) => !GEO_KEYS.has(f) && f !== "status") && (
-                      <div style={{ marginTop: 4, display: "grid", gap: 2 }}>
+                      <div style={{ display: "grid", gap: 2 }}>
                         {Object.entries(x.changes).filter(([f]) => !GEO_KEYS.has(f) && f !== "status").map(([f, c]) => (
                           <div key={f} style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline" }}>
-                            <span style={{ minWidth: 92, color: "var(--muted)" }}>{f}</span>
+                            <span style={{ minWidth: 92, color: "var(--muted)" }}>{FIELD_LABEL.get(f) ?? f}</span>
                             <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(c.from)}</span>
                             <span>→</span>
                             <span style={{ color: "var(--accent)", fontWeight: 700 }}>{fmt(c.to)}</span>
@@ -400,12 +509,10 @@ export default function Auditoria() {
                     )}
                     {/* localização: desvio detectado e novo ponto */}
                     {x.changes && x.changes.lat && x.geoInfo && (
-                      <div style={{ marginTop: 4, fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
                         <span style={{ color: "var(--accent)", fontWeight: 700 }}>📍 localização</span>
                         <span style={{ color: "var(--muted)" }}>
-                          {x.geoInfo.distanceM != null
-                            ? `desvio de ${x.geoInfo.distanceM >= 1000 ? (x.geoInfo.distanceM / 1000).toFixed(1) + " km" : Math.round(x.geoInfo.distanceM) + " m"} → novo ponto`
-                            : "sem ponto salvo → novo ponto"}
+                          {x.geoInfo.distanceM != null ? `desvio de ${fmtDist(x.geoInfo.distanceM)} → novo ponto` : "sem ponto salvo → novo ponto"}
                         </span>
                         <a href={`https://www.google.com/maps?q=${x.geoInfo.to.lat},${x.geoInfo.to.lng}`} target="_blank" rel="noreferrer"
                           onClick={(e) => e.stopPropagation()} style={{ fontSize: 11.5, fontWeight: 600 }}>ver ponto ↗</a>
@@ -415,16 +522,16 @@ export default function Auditoria() {
                       </div>
                     )}
                     {x.reviewed && checkGeo && x.geoInfo === null && (!x.changes || !x.changes.lat) && (
-                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>📍 localização confere (ou sem endereço no anúncio)</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>📍 localização confere (ou sem endereço no anúncio)</div>
                     )}
-                    {/* o que a IA achou (inclui "fix" abaixo do limiar de confiança) */}
+                    {/* veredicto da IA + "fix" abaixo do limiar */}
                     {x.reviewed && x.verdicts && (() => {
                       const checked = x.verdicts.length;
                       const changeKeys = new Set(Object.keys(x.changes ?? {}));
                       const weak = x.verdicts.filter((v) => v.status === "fix" && !changeKeys.has(v.field));
                       const anyFix = x.verdicts.some((v) => v.status === "fix");
                       return (
-                        <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>
+                        <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                           {checked > 0
                             ? `IA conferiu ${checked} campo(s)${!anyFix ? " · sem divergências" : ""}`
                             : "IA não retornou veredicto (resposta vazia ou fora do formato)"}
@@ -432,7 +539,7 @@ export default function Auditoria() {
                             <div style={{ marginTop: 3, display: "grid", gap: 2 }}>
                               {weak.map((v) => (
                                 <div key={v.field} style={{ display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
-                                  <span style={{ minWidth: 88 }}>{v.field}</span>
+                                  <span style={{ minWidth: 88 }}>{FIELD_LABEL.get(v.field) ?? v.field}</span>
                                   <span>→ <b>{fmt(v.value)}</b></span>
                                   <span style={{ opacity: 0.85 }}>
                                     conf {Math.round((v.confidence ?? 0) * 100)}% · abaixo do limiar ({Math.round(minConf * 100)}%)
@@ -444,9 +551,9 @@ export default function Auditoria() {
                         </div>
                       );
                     })()}
-                    {/* situação detectada diferente da salva → some do mapa ao aplicar */}
+                    {/* situação */}
                     {x.changes && x.changes.status && (
-                      <div style={{ marginTop: 4, fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12, display: "flex", gap: 6, alignItems: "baseline", flexWrap: "wrap" }}>
                         <span style={{ color: "var(--accent)", fontWeight: 700 }}>📌 situação</span>
                         <span style={{ color: "var(--warn)", textDecoration: "line-through" }}>{fmt(x.changes.status.from)}</span>
                         <span>→</span>
@@ -455,36 +562,19 @@ export default function Auditoria() {
                       </div>
                     )}
                     {x.statusProbe && !(x.changes && x.changes.status) && (
-                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>📌 situação confere ({x.statusProbe.detected})</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>📌 situação confere ({x.statusProbe.detected})</div>
                     )}
-                    {/* preço conferido mas ausente em toda parte (anúncio "Consulte") */}
                     {x.priceProbe && x.priceProbe.found == null && !(x.changes && x.changes.price) && (
-                      <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--muted)" }}>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
                         💲 preço não consta no anúncio (nem no texto nem nos metadados) — provável “Consulte”
                       </div>
                     )}
                     {x.error && <div style={{ fontSize: 12, color: "var(--warn)" }}>⚠️ {x.error}</div>}
                   </div>
-                  {/* selo */}
-                  {x.reviewed && !x.busy && (
-                    <span style={{ fontSize: 11.5, color: "var(--muted)", whiteSpace: "nowrap" }}>
-                      {x.lastChanges > 0 ? `${x.lastChanges} ${x.applied ? "corrig." : "sugest."}` : "ok"}
-                    </span>
                   )}
-                  {/* aplicar sugestões (sem gastar IA) */}
-                  {x.changes && Object.keys(x.changes).length > 0 && !x.applied && !x.busy && (
-                    <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
-                      onClick={() => applyOne(x)} disabled={batch}>
-                      Aplicar
-                    </button>
-                  )}
-                  {/* ação */}
-                  <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
-                    onClick={() => auditOne(x)} disabled={x.busy || batch}>
-                    {x.busy ? "…" : x.reviewed ? "Rever" : "Revisar"}
-                  </button>
                 </div>
-              ))}
+                );
+              })}
               {shown.length > 400 && (
                 <div style={{ padding: "10px 14px", fontSize: 12.5, color: "var(--muted)", borderTop: "1px solid var(--border)" }}>
                   Mostrando 400 de {shown.length}. Use a busca ou o lote para os demais.

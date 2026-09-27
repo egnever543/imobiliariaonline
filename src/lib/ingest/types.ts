@@ -25,6 +25,7 @@ export interface ExtractedListing {
   condo_fee: number | null; // condomínio mensal
   is_launch: boolean | null; // lançamento / na planta
   image_url: string | null; // foto principal (og:image)
+  beach_distance_m: number | null; // distância do mar informada no anúncio (m)
 }
 
 /** Registro canônico, pronto para gravar na tabela `listings`. */

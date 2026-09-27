@@ -3,7 +3,7 @@
 // insight (preço justo), dos comércios por perto e da distância à praia.
 // Usado no mapa e na página de Análise, para não duplicar a lógica.
 
-import { haversine, coastlineDistanceM, type ListingInsight } from "./score";
+import { haversine, beachDistanceM, type ListingInsight } from "./score";
 
 const POI_LABEL: Record<string, string> = {
   escola: "escola", farmacia: "farmácia", supermercado: "mercado",
@@ -17,6 +17,8 @@ export interface ReasonInput {
   insight: Pick<ListingInsight, "discountPct" | "basis">;
   pois?: { category: string; lat: number; lng: number }[];
   coastline?: [number, number][][];
+  beaches?: [number, number][][]; // praias de areia (OSM natural=beach)
+  declaredBeachM?: number | null; // distância do mar informada no anúncio
   radiusM?: number; // raio para contar comércios (padrão 1200 m)
 }
 
@@ -46,10 +48,15 @@ export function buildReasons(inp: ReasonInput): string[] {
     if (top) out.push(`${top[1]} ${POI_LABEL[top[0]] ?? top[0]} num raio de ${(R / 1000).toLocaleString("pt-BR")} km`);
   }
 
-  // 3) proximidade da praia (distância ao segmento de costa mais próximo)
-  if (lat != null && lng != null && inp.coastline?.length) {
-    const bd = coastlineDistanceM(lat, lng, inp.coastline);
-    if (bd != null && bd < 1500) out.push(`praia a ~${bd < 1000 ? Math.round(bd) + " m" : (bd / 1000).toFixed(1) + " km"}`);
+  // 3) proximidade da praia (anúncio → praia OSM → costa OSM)
+  {
+    const bd = beachDistanceM(lat, lng, {
+      declaredM: inp.declaredBeachM, beaches: inp.beaches, coastline: inp.coastline,
+    });
+    if (bd.meters != null && bd.meters < 1500) {
+      const txt = bd.meters < 1000 ? Math.round(bd.meters) + " m" : (bd.meters / 1000).toFixed(1) + " km";
+      out.push(`praia a ~${txt}${bd.source === "anuncio" ? " (anúncio)" : ""}`);
+    }
   }
 
   return out.slice(0, 3);
