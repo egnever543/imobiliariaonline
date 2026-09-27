@@ -28,6 +28,8 @@ interface Item {
   reviewed: boolean; lastChanges: number; applied: boolean; lastAt?: string | null;
   // estado local durante a auditoria
   busy?: boolean; changes?: Record<string, Change>; verdicts?: Verdict[]; geoInfo?: GeoInfo | null; priceProbe?: { found: number | null } | null; statusProbe?: { detected: string } | null; error?: string;
+  // Passo 1 (conferência grátis)
+  freeChecked?: boolean; freeChanges?: number; freeStatus?: string;
 }
 const fmt = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : String(v));
 const money = (v: number | null) => (v ? "R$ " + v.toLocaleString("pt-BR") : "—");
@@ -97,6 +99,12 @@ export default function Auditoria() {
   const [batchTotal, setBatchTotal] = useState(0);
   const [cost, setCost] = useState(0);
   const abort = useRef(false);
+
+  // Passo 1 — conferência automática (grátis, sem IA): re-lê o anúncio
+  const [freeBatch, setFreeBatch] = useState(false);
+  const [freeDone, setFreeDone] = useState(0);
+  const [freeTotal, setFreeTotal] = useState(0);
+  const [freeSummary, setFreeSummary] = useState<{ updated: number; offair: number } | null>(null);
 
   useEffect(() => {
     const t = localStorage.getItem("admin_token") ?? "";
@@ -204,6 +212,43 @@ export default function Auditoria() {
     setBatch(false);
   }
 
+  // ── Passo 1 — conferência automática (grátis): re-lê o anúncio via /api/refresh
+  // Pega preço novo, foto, campos que faltavam e marca "fora do ar". Sem IA.
+  async function refreshRow(it: Item): Promise<{ updated: boolean; offair: boolean }> {
+    setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: true, error: undefined } : x)));
+    try {
+      const res = await fetch("/api/refresh", { method: "POST", headers: headers(), body: JSON.stringify({ listingId: it.id }) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? `HTTP ${res.status}`);
+      const changed = (d.changed as Record<string, { from: unknown; to: unknown }>) ?? {};
+      const newPrice = changed.price ? (changed.price.to as number) : undefined;
+      setItems((xs) => xs.map((x) => x.id === it.id
+        ? { ...x, busy: false, price: newPrice ?? x.price, freeChecked: true, freeChanges: Object.keys(changed).length, freeStatus: d.status as string }
+        : x));
+      return { updated: Object.keys(changed).length > 0, offair: d.status === "indisponivel" };
+    } catch (e) {
+      setItems((xs) => xs.map((x) => (x.id === it.id ? { ...x, busy: false, error: (e as Error).message } : x)));
+      return { updated: false, offair: false };
+    }
+  }
+
+  async function runFreePass() {
+    const targets = shown;
+    if (!targets.length) { setMsg("Nada para conferir com esse filtro."); return; }
+    abort.current = false; setFreeBatch(true); setFreeDone(0); setFreeTotal(targets.length); setFreeSummary(null);
+    let updated = 0, offair = 0;
+    for (const it of targets) {
+      if (abort.current) { setMsg("⏹ Interrompido."); break; }
+      const r = await refreshRow(it);
+      if (r.updated) updated++;
+      if (r.offair) offair++;
+      setFreeDone((n) => n + 1);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    setFreeBatch(false);
+    setFreeSummary({ updated, offair });
+  }
+
   const total = items.length;
   const reviewed = items.filter((x) => x.reviewed).length;
   const pending = total - reviewed;
@@ -272,6 +317,9 @@ export default function Auditoria() {
     const weak = (x.verdicts ?? []).filter((v) => v.status === "fix" && !changeKeys.has(v.field));
     if (weak.length) out.push({ key: "weak", label: `⚠️ ${weak.length} possíve${weak.length > 1 ? "is" : "l"}`, tone: "muted" });
     if (x.priceProbe && x.priceProbe.found == null && !ch.price) out.push({ key: "noprice", label: "💲 sem preço no anúncio", tone: "muted" });
+    // resultado do Passo 1 (conferência grátis)
+    if (x.freeStatus === "indisponivel") out.push({ key: "offair", label: "🚫 fora do ar", tone: "warn" });
+    else if (x.freeChecked) out.push({ key: "free", label: x.freeChanges ? `⚡ atualizado (${x.freeChanges})` : "⚡ conferido", tone: x.freeChanges ? "accent" : "ok" });
     if (x.error) out.push({ key: "err", label: "⚠️ erro", tone: "warn" });
     // nada mudou e já revisado → confere
     if (!out.length && x.reviewed && !x.busy) out.push({ key: "ok", label: "✓ confere", tone: "ok" });
@@ -286,10 +334,10 @@ export default function Auditoria() {
       <Nav />
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 20px 96px" }}>
         <span className="chip">Painel</span>
-        <h1 style={{ fontSize: 28, margin: "12px 0 4px" }}>Auditoria por IA</h1>
+        <h1 style={{ fontSize: 28, margin: "12px 0 4px" }}>Revisar dados</h1>
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14.5 }}>
-          A IA lê cada anúncio, compara com os dados salvos e corrige o que
-          estiver errado. Escolha o que conferir, revise um a um ou em lote.
+          Primeiro o sistema <strong>confere tudo de graça</strong> (Passo 1); depois a
+          <strong> IA revisa</strong> só o que ficou pendente ou divergente (Passo 2).
         </p>
 
         {/* Config recolhível — sai do caminho depois de preenchida */}
@@ -338,7 +386,42 @@ export default function Auditoria() {
           )}
         </div>
 
-        {/* O que auditar — 3 grupos (marque só o necessário; menos campos, menos tokens) */}
+        {/* Passo 1 — conferência automática (grátis, sem IA) */}
+        {items.length > 0 && (
+          <div style={{ ...box, marginTop: 10, padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <strong style={{ fontSize: 14 }}>Passo 1 · Conferir tudo (grátis)</strong>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>re-lê o anúncio: preço, foto, situação e campos que faltavam — sem gastar IA</span>
+              {!freeBatch ? (
+                <button className="btn" style={{ marginLeft: "auto" }} onClick={runFreePass} disabled={!token || batch || !shown.length}>
+                  ⚡ Conferir {shown.length} (grátis)
+                </button>
+              ) : (
+                <button className="btn" style={{ marginLeft: "auto", background: "var(--warn)" }} onClick={() => (abort.current = true)}>⏹ Parar</button>
+              )}
+            </div>
+            {freeBatch && (
+              <div style={{ height: 7, background: "var(--border)", borderRadius: 4, overflow: "hidden", marginTop: 10 }}>
+                <div style={{ width: `${freeTotal ? Math.round((freeDone / freeTotal) * 100) : 0}%`, height: "100%", background: "var(--accent)", transition: "width .2s" }} />
+              </div>
+            )}
+            {(freeBatch || freeSummary) && (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 8 }}>
+                {freeBatch
+                  ? `${freeDone}/${freeTotal} conferidos`
+                  : `✅ ${freeSummary!.updated} atualizados · 🚫 ${freeSummary!.offair} fora do ar. O que sobrou pendente, revise com a IA no Passo 2.`}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Passo 2 — o que auditar com a IA (3 grupos; menos campos, menos tokens) */}
+        {items.length > 0 && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 16 }}>
+            <strong style={{ fontSize: 14 }}>Passo 2 · Revisar com IA</strong>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>marque só o que conferir</span>
+          </div>
+        )}
         <div style={{ ...box, marginTop: 10, padding: "14px 16px", display: "grid", gap: 12 }}>
           {/* Dados do anúncio */}
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -467,6 +550,12 @@ export default function Auditoria() {
                         ))}
                       </div>
                     </div>
+                    {/* Passo 1: conferir grátis este imóvel */}
+                    <button className="btn btn-ghost" title="Conferir grátis (re-lê o anúncio, sem IA)"
+                      style={{ padding: "6px 10px", fontSize: 12.5 }}
+                      onClick={(e) => { e.stopPropagation(); refreshRow(x); }} disabled={x.busy || batch || freeBatch}>
+                      ⚡
+                    </button>
                     {/* aplicar sugestões (sem gastar IA) */}
                     {canApply && (
                       <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
@@ -474,7 +563,7 @@ export default function Auditoria() {
                         Aplicar
                       </button>
                     )}
-                    {/* ação */}
+                    {/* ação: revisar com IA */}
                     <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
                       onClick={(e) => { e.stopPropagation(); auditOne(x); }} disabled={x.busy || batch}>
                       {x.busy ? "…" : x.reviewed ? "Rever" : "Revisar"}

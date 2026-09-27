@@ -147,11 +147,9 @@ const TOOL_GROUPS: ToolGroup[] = [
   {
     title: "Manter a base", icon: "🛠", hint: "cuidar do que já foi coletado",
     tools: [
-      { href: "/admin/atualizar", icon: "🔄", name: "Atualizar imóveis", desc: "Revisitar anúncios (preço, foto, status)",
-        info: "Revisita os anúncios já coletados (grátis, sem IA): traz preço novo, completa dados que faltavam (incluindo a foto) e marca como indisponível o que saiu do ar. Rode de tempos em tempos." },
-      { href: "/admin/auditoria", icon: "✅", name: "Auditoria por IA", desc: "Conferir e corrigir os dados",
-        info: "A IA lê cada anúncio, compara com os dados salvos e corrige o que estiver errado (preço, área, tipo, quartos…). Revise um a um ou em lote; dá para só sugerir antes de aplicar." },
-      { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Geocodificar imóveis sem coordenada",
+      { href: "/admin/auditoria", icon: "✅", name: "Revisar dados", desc: "Conferir grátis e revisar com IA",
+        info: "Numa esteira só: Passo 1 confere tudo de graça (re-lê o anúncio: preço, foto, situação, campos que faltavam, sem IA); Passo 2 usa a IA para revisar o que sobrou pendente ou divergente (campos, situação, praia). Em lote ou um a um." },
+      { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Fixar no mapa imóveis sem coordenada",
         info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto manualmente." },
       { href: "/admin/comercios", icon: "🔥", name: "Comércios / mapa de calor", desc: "Coletar escola, farmácia, mercado…",
         info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
