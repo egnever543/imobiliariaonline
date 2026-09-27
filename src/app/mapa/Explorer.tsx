@@ -92,8 +92,6 @@ const isIncompleto = (d: Listing) =>
   d.geo_method === "bairro" || d.geo_method === "fallback" || !d.lat || !d.lng;
 const scoreColor = (s: number) =>
   s >= 70 ? "#10b981" : s >= 50 ? "#f59e0b" : s >= 35 ? "#f97316" : "#ef4444";
-const scoreLabel = (s: number) =>
-  s >= 70 ? "Excelente" : s >= 50 ? "Bom" : s >= 35 ? "Regular" : "Fraco";
 
 // Miniatura/foto do imóvel com fallback "sem foto" (a og:image pode falhar).
 function Photo({

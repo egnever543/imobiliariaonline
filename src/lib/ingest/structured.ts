@@ -253,26 +253,3 @@ export async function fetchListingSignals(
     return null;
   }
 }
-
-/** Busca o HTML cru e extrai o que for estruturado. */
-export async function fetchStructured(
-  url: string,
-  timeoutMs = 12_000,
-): Promise<ExtractedListing | null> {
-  try {
-    const c = new AbortController();
-    const t = setTimeout(() => c.abort(), timeoutMs);
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; radar-imobiliario/0.1; +https://vercel.app)",
-      },
-      signal: c.signal,
-    });
-    clearTimeout(t);
-    if (!res.ok) return null;
-    return extractStructured(await res.text(), url);
-  } catch {
-    return null;
-  }
-}
