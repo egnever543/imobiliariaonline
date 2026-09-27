@@ -148,27 +148,3 @@ export function extractJsonLd(html: string): ExtractedListing | null {
     beach_distance_m: null,
   };
 }
-
-/** Busca o HTML cru de um anúncio e tenta extrair via JSON-LD. */
-export async function fetchJsonLd(
-  url: string,
-  timeoutMs = 12_000,
-): Promise<ExtractedListing | null> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; radar-imobiliario/0.1; +https://vercel.app)",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const html = await res.text();
-    return extractJsonLd(html);
-  } catch {
-    return null;
-  }
-}
