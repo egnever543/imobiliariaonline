@@ -138,14 +138,10 @@ interface ToolGroup { title: string; icon: string; hint?: string; tools: Tool[] 
 // Ver a base (Mapa, Vitrine, Análise) fica no menu do topo — não repetido aqui.
 const TOOL_GROUPS: ToolGroup[] = [
   {
-    title: "Adicionar imóveis", icon: "➕", hint: "para abrir uma cidade nova, siga 1 → 2 → 3",
+    title: "Adicionar imóveis", icon: "➕", hint: "descobrir, coletar a cidade e adicionar um site — num fluxo só",
     tools: [
-      { step: 1, href: "/admin/descobrir", icon: "🔎", name: "Descobrir imobiliárias", desc: "Achar imobiliárias via Google",
-        info: "Usa o Google Places para listar as imobiliárias de uma cidade e o site de cada uma, salvando-as para depois coletar. Primeiro passo ao abrir uma cidade nova." },
-      { step: 2, href: "/admin/coletar-cidade", icon: "🏙️", name: "Coletar cidade", desc: "Varrer a cidade inteira de uma vez",
-        info: "Roda a coleta em todas as imobiliárias já descobertas na cidade, em sequência. Ideal para popular a base de uma cidade nova." },
-      { step: 3, href: "/admin/coletar", icon: "📥", name: "Coletar imobiliária", desc: "Puxar anúncios de um site específico",
-        info: "Informe o site de uma imobiliária: o sistema busca os anúncios (grátis) e coleta quantos você escolher, mostrando o custo da IA ao vivo. Use para adicionar uma imobiliária específica." },
+      { href: "/admin/coletar", icon: "📥", name: "Adicionar imóveis", desc: "Descobrir · coletar cidade · um site",
+        info: "Fluxo único para popular a base: você digita a cidade uma vez e escolhe a etapa por abas — 1) Descobrir imobiliárias (Google), 2) Coletar a cidade inteira, ou adicionar um site avulso. Mostra o custo da IA ao vivo." },
     ],
   },
   {

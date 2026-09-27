@@ -1,26 +1,15 @@
 "use client";
 
-// ── Coletar cidade inteira ────────────────────────────────────────────
+// ── Aba: Coletar a cidade inteira ─────────────────────────────────────
 // 1) Enumera todos os anúncios de todas as imobiliárias (sitemap + fallback).
 // 2) Coleta um por um, pulando os já existentes, com progresso e custo ao vivo.
+// Recebe senha e cidade (slug) da página pai.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
-interface Agency {
-  id: string;
-  name: string;
-  website: string | null;
-  listing_url: string | null;
-}
-interface QItem {
-  url: string;
-  agencyId: string;
-}
+interface Agency { id: string; name: string; website: string | null; listing_url: string | null }
+interface QItem { url: string; agencyId: string }
 
-const input: React.CSSProperties = {
-  padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border)",
-  background: "transparent", color: "var(--ink)", fontSize: 14,
-};
 const btn: React.CSSProperties = {
   padding: "10px 16px", borderRadius: 8, border: "none",
   background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer",
@@ -29,9 +18,7 @@ const card: React.CSSProperties = {
   background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 12, padding: 16,
 };
 
-export default function ColetarCidade() {
-  const [token, setToken] = useState("");
-  const [citySlug, setCitySlug] = useState("itapoa-sc");
+export default function ColetarCidade({ token, citySlug }: { token: string; citySlug: string }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [city, setCity] = useState<{ cityId: string; cityName: string; uf: string } | null>(null);
@@ -45,7 +32,6 @@ export default function ColetarCidade() {
   const [logs, setLogs] = useState<string[]>([]);
   const abort = useRef(false);
 
-  useEffect(() => setToken(localStorage.getItem("admin_token") ?? ""), []);
   const headers = () => ({ "content-type": "application/json", "x-admin-token": token });
   const log = (s: string) => setLogs((l) => [s, ...l].slice(0, 60));
 
@@ -123,23 +109,15 @@ export default function ColetarCidade() {
   const pct = queue.length ? Math.round((done / queue.length) * 100) : 0;
 
   return (
-    <main style={{ maxWidth: 780, margin: "0 auto", padding: "40px 24px 96px" }}>
-      <a href="/admin" style={{ fontSize: 13 }}>← painel</a>
-      <h1 style={{ fontSize: 24, margin: "6px 0 2px" }}>Coletar cidade inteira</h1>
-      <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 14 }}>
-        Enumera todos os anúncios (via sitemap) e coleta um por um, pulando os já
-        salvos. Deixe a aba aberta durante a coleta.
+    <div>
+      <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 13.5 }}>
+        Enumera todos os anúncios (via sitemap) das imobiliárias já descobertas e
+        coleta um por um, pulando os já salvos. Deixe a aba aberta durante a coleta.
       </p>
 
-      <div style={{ ...card, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input style={{ ...input, flex: 2, minWidth: 160 }} type="password" value={token}
-          onChange={(e) => { setToken(e.target.value); localStorage.setItem("admin_token", e.target.value); }}
-          placeholder="senha do painel" />
-        <input style={{ ...input, width: 140 }} value={citySlug} onChange={(e) => setCitySlug(e.target.value)} placeholder="cidade-slug" />
-        <button style={{ ...btn, opacity: busy ? 0.6 : 1 }} onClick={prepare} disabled={busy}>
-          1. Preparar (grátis)
-        </button>
-      </div>
+      <button style={{ ...btn, opacity: busy || !token ? 0.6 : 1 }} onClick={prepare} disabled={busy || !token}>
+        1. Preparar (grátis)
+      </button>
 
       {msg && <p style={{ marginTop: 12, fontSize: 14 }}>{msg}</p>}
 
@@ -176,6 +154,6 @@ export default function ColetarCidade() {
           )}
         </div>
       )}
-    </main>
+    </div>
   );
 }
