@@ -43,7 +43,7 @@ export default function AdicionarImoveis() {
   const seg = (on: boolean): React.CSSProperties => ({
     padding: "8px 14px", borderRadius: 9, fontSize: 13.5, fontWeight: 700, cursor: "pointer",
     border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-    background: on ? "var(--accent)" : "var(--paper)", color: on ? "#fff" : "var(--muted)",
+    background: on ? "var(--accent)" : "var(--paper)", color: on ? "var(--on-accent)" : "var(--muted)",
   });
 
   return (

@@ -30,7 +30,7 @@ interface Report {
 
 const btn: React.CSSProperties = {
   padding: "10px 16px", borderRadius: 8, border: "none",
-  background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer",
+  background: "var(--accent)", color: "var(--on-accent)", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
 const td: React.CSSProperties = { padding: "8px 10px", borderBottom: "1px solid var(--border)", verticalAlign: "top" };
 

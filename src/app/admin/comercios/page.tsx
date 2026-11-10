@@ -1,9 +1,8 @@
 "use client";
 
-// ── Coleta de comércios (POIs) ────────────────────────────────────────
-// Puxa escola/farmácia/mercado/saúde etc. em volta dos imóveis da cidade
-// (Google Places) para o mapa de calor e a nota de vizinhança.
-// Sempre estima o custo (grátis) antes de coletar.
+// ── Pontos de referência (POIs) ───────────────────────────────────────
+// Puxa hospital, escola, mercado, farmácia e afins em volta dos imóveis da
+// cidade para aparecerem como referência no mapa. Estima o custo antes.
 
 import { useEffect, useState } from "react";
 import Nav from "@/components/Nav";
@@ -56,28 +55,7 @@ export default function Comercios() {
         );
       }
       if (dryRun) { setEst(data as unknown as Est); setMsg(""); }
-      else { setDone(data as unknown as Done); setEst(null); setMsg("✅ Comércios coletados. Ative o 🔥 no mapa."); }
-    } catch (e) {
-      setMsg("Erro: " + (e as Error).message);
-    } finally { setBusy(false); }
-  }
-
-  // coleta a linha de costa (OSM) — alimenta o fator "praia" do ranking
-  async function collectCoast() {
-    setBusy(true); setMsg("");
-    try {
-      const res = await fetch("/api/coastline/collect", {
-        method: "POST", headers: headers(), body: JSON.stringify({ citySlug }),
-      });
-      const text = await res.text();
-      let data: Record<string, unknown> = {};
-      try { data = text ? JSON.parse(text) : {}; } catch { /* vazio/timeout */ }
-      if (!res.ok) throw new Error((data.error as string) ?? `HTTP ${res.status}`);
-      setMsg(
-        (data.points as number) > 0 || (data.beachPoints as number) > 0
-          ? `✅ Costa: ${data.points} pontos em ${data.ways} trechos · Praia: ${data.beachPoints ?? 0} pontos em ${data.beaches ?? 0} áreas. O fator "praia" já usa isso (praia tem prioridade sobre a costa).`
-          : "Nenhuma costa nem praia encontrada nessa área (cidade sem mar?).",
-      );
+      else { setDone(data as unknown as Done); setEst(null); setMsg("Pontos coletados. Ative “Pontos de referência” no mapa."); }
     } catch (e) {
       setMsg("Erro: " + (e as Error).message);
     } finally { setBusy(false); }
@@ -90,11 +68,11 @@ export default function Comercios() {
       <Nav />
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "40px 24px 96px" }}>
         <span className="chip">Painel</span>
-        <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Coletar comércios (mapa de calor)</h1>
+        <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Pontos de referência</h1>
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
-          Puxa escola, farmácia, mercado, saúde e afins em volta dos imóveis já
-          geolocalizados — para o mapa de calor de valorização e a nota de
-          vizinhança. Estime o custo antes de coletar.
+          Puxa hospital, escola, mercado, farmácia e afins em volta dos imóveis
+          já geolocalizados — para aparecerem como referência no mapa. Estime o
+          custo (grátis) antes de coletar.
         </p>
 
         <div style={{ ...box, marginTop: 20, display: "grid", gap: 12 }}>
@@ -108,7 +86,7 @@ export default function Comercios() {
           </div>
 
           <div>
-            <label style={label}>Fonte dos comércios</label>
+            <label style={label}>Fonte dos pontos</label>
             <div style={{ display: "flex", gap: 8 }}>
               {([
                 ["osm", "OpenStreetMap · grátis"],
@@ -119,7 +97,7 @@ export default function Comercios() {
                     flex: 1, padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
                     border: `1px solid ${provider === p ? "var(--accent)" : "var(--border)"}`,
                     background: provider === p ? "var(--accent)" : "var(--paper)",
-                    color: provider === p ? "#fff" : "var(--muted)",
+                    color: provider === p ? "var(--on-accent)" : "var(--muted)",
                   }}>
                   {lbl}
                 </button>
@@ -127,8 +105,8 @@ export default function Comercios() {
             </div>
             <p style={{ fontSize: 12, color: "var(--muted)", margin: "6px 0 0" }}>
               {provider === "osm"
-                ? "1 consulta cobre a cidade inteira, sem custo. Traz escola, farmácia, mercado, saúde, banco, praça… (sem nota de avaliação)."
-                : "Mais completo e com nota, mas cobra por requisição e varre a cidade em grade. Use se quiser filtrar por qualidade."}
+                ? "1 consulta cobre a cidade inteira, sem custo. Traz hospital, escola, mercado, farmácia, saúde, banco, praça…"
+                : "Mais completo, mas cobra por requisição e varre a cidade em grade."}
             </p>
           </div>
 
@@ -146,7 +124,7 @@ export default function Comercios() {
                         flex: 1, padding: "9px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
                         border: `1px solid ${mode === m ? "var(--accent)" : "var(--border)"}`,
                         background: mode === m ? "var(--accent)" : "var(--paper)",
-                        color: mode === m ? "#fff" : "var(--muted)",
+                        color: mode === m ? "var(--on-accent)" : "var(--muted)",
                       }}>
                       {lbl}
                     </button>
@@ -165,17 +143,9 @@ export default function Comercios() {
             </button>
             <button className="btn" onClick={() => call(false)} disabled={busy || !token || !est}
               title={!est ? "Estime primeiro" : ""}>
-              2. Coletar comércios
-            </button>
-            <button className="btn btn-ghost" onClick={collectCoast} disabled={busy || !token}
-              title="Coleta o traçado do mar (OSM) desta cidade para o fator praia do ranking">
-              🌊 Coletar linha de costa
+              2. Coletar pontos
             </button>
           </div>
-          <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-            A linha de costa (grátis, OSM) alimenta o fator <strong>praia</strong> do ranking.
-            Rode uma vez por cidade — assim a distância do mar fica correta sem ajuste manual.
-          </p>
         </div>
 
         {est && (
@@ -199,12 +169,12 @@ export default function Comercios() {
           <div style={{ ...box, marginTop: 16 }}>
             <div style={{ fontSize: 13, color: "var(--muted)" }}>Coleta concluída</div>
             <div style={{ display: "flex", gap: 18, marginTop: 8, flexWrap: "wrap" }}>
-              <Stat n={done.collected} l="comércios" />
+              <Stat n={done.collected} l="pontos" />
               <Stat n={done.saved} l="salvos" />
               <Stat n={done.requests} l="requisições" />
               <Stat n={usd(done.estimatedCostUSD)} l="custo" hot />
             </div>
-            <a href="/mapa" className="btn" style={{ marginTop: 12 }}>Ver no mapa →</a>
+            <a href="/mapa" className="btn" style={{ marginTop: 12 }}>Ver no mapa</a>
           </div>
         )}
 

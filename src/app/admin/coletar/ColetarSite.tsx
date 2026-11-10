@@ -21,7 +21,7 @@ const input: React.CSSProperties = {
 const label: React.CSSProperties = { fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 4 };
 const btn: React.CSSProperties = {
   padding: "10px 16px", borderRadius: "var(--radius-sm)", border: "none",
-  background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "var(--shadow-sm)",
+  background: "var(--accent)", color: "var(--on-accent)", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "var(--shadow-sm)",
 };
 
 export default function ColetarSite({ token, citySlug, cityName, uf }: { token: string; citySlug: string; cityName: string; uf: string }) {

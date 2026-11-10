@@ -12,7 +12,7 @@ interface QItem { url: string; agencyId: string }
 
 const btn: React.CSSProperties = {
   padding: "10px 16px", borderRadius: 8, border: "none",
-  background: "var(--accent)", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer",
+  background: "var(--accent)", color: "var(--on-accent)", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
 const card: React.CSSProperties = {
   background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 12, padding: 16,

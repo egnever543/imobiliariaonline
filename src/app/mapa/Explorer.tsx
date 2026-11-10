@@ -1,46 +1,31 @@
 "use client";
 
-// ── Explorador de imóveis (ferramenta do corretor) ────────────────────
-// Fluxo de busca: barra de filtros no topo (tipo, quartos, preço, bairro,
-// imobiliárias) → lista de resultados + mapa → painel de detalhe ao clicar.
-// Ranking inteligente e seleção de imobiliárias moram em menus sob demanda,
-// para a tela não ficar amontoada.
+// ── Mapa de imóveis ───────────────────────────────────────────────────
+// Tela única do produto. Filtros simples no topo → lista + mapa → painel de
+// detalhe ao clicar. Cada pin é colorido pelo preço por m² em relação à
+// mediana do bairro (verde = abaixo, neutro = na média, vermelho = acima).
+// Um toggle mostra os pontos de referência (hospital, escola, mercado…).
+// Sem score, sem mapa de calor: só o essencial, direto.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { scoreListings, haversine, type ScorableListing, type ListingInsight } from "@/lib/scoring/score";
-import {
-  SCORE_PROFILES,
-  DEFAULT_WEIGHTS,
-  type Weights,
-  type ScoreFactor,
-} from "@/lib/scoring/profiles";
-import { ITAPOA_COASTLINE } from "@/lib/scoring/coastline";
-import { buildReasons } from "@/lib/scoring/reasons";
 
 export interface Listing {
   id: string;
   title: string | null;
   type: string | null;
   price: number | null;
-  price_original: number | null;
   area_total_m2: number | null;
-  built_area_m2: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   suites: number | null;
   parking: number | null;
-  frente_m: number | null;
-  comprimento_m: number | null;
   neighborhood: string | null;
   street: string | null;
   cep: string | null;
   lat: number | null;
   lng: number | null;
   geo_method: string | null;
-  beach_distance_m: number | null;
-  accepts_permuta: boolean | null;
-  is_launch: boolean | null;
   image_url: string | null;
   source_url: string;
   agency: string;
@@ -51,49 +36,39 @@ export interface PoiPoint {
   category: string;
   lat: number;
   lng: number;
-  rating: number | null;
-  weight: number;
 }
 
-// rótulo amigável por categoria de POI
+// rótulo amigável por categoria de ponto de referência
 const POI_LABEL: Record<string, string> = {
-  escola: "escola", farmacia: "farmácia", supermercado: "mercado",
-  hospital: "hospital", saude: "saúde", padaria: "padaria",
-  banco: "banco", praca: "praça", academia: "academia",
+  escola: "Escola", farmacia: "Farmácia", supermercado: "Mercado",
+  hospital: "Hospital", saude: "Saúde", padaria: "Padaria",
+  banco: "Banco", praca: "Praça", academia: "Academia",
 };
 
-const PALETTE = [
-  "#2563eb", "#0ea5e9", "#7c3aed", "#0891b2",
-  "#f59e0b", "#e11d48", "#10b981", "#f97316",
-];
-const FACTORS: { key: ScoreFactor; label: string; icon: string; color: string }[] = [
-  { key: "deal", label: "Oferta", icon: "🏷️", color: "#7c3aed" },
-  { key: "beach", label: "Praia", icon: "🏖️", color: "#0ea5e9" },
-  { key: "poi", label: "POIs", icon: "📍", color: "#e11d48" },
-  { key: "pricePerM2", label: "R$/m²", icon: "💰", color: "#10b981" },
-  { key: "geoQuality", label: "Geo", icon: "📌", color: "#2563eb" },
-  { key: "area", label: "Área", icon: "📐", color: "#f59e0b" },
-];
+// cores dos pins por faixa de preço vs. mediana do bairro
+const PRICE_COLOR = { barato: "#4ea884", medio: "#8d8a82", caro: "#e5564b" } as const;
+type PriceClass = keyof typeof PRICE_COLOR | "sem";
 
-const PAGE_SIZE = 20; // imóveis por página na lista lateral
+const PAGE_SIZE = 20;
 
 const fmtPrice = (v: number | null) =>
-  v ? "R$ " + v.toLocaleString("pt-BR") : "Consulte";
+  v ? "R$ " + v.toLocaleString("pt-BR") : "Sob consulta";
 const shortPrice = (v: number | null) =>
-  !v ? "?" : v >= 1e6 ? "R$" + (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? "R$" + Math.round(v / 1e3) + "k" : "R$" + v;
-const fmtArea = (v: number | null) =>
-  v ? v.toLocaleString("pt-BR") + " m²" : "";
+  !v ? "—" : v >= 1e6 ? "R$ " + (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? "R$ " + Math.round(v / 1e3) + "k" : "R$ " + v;
+const fmtArea = (v: number | null) => (v ? v.toLocaleString("pt-BR") + " m²" : "");
 const perM2 = (d: Listing) =>
   d.price && d.area_total_m2 ? Math.round(d.price / d.area_total_m2) : null;
 const isApprox = (d: Listing) =>
   d.geo_method === "bairro" || d.geo_method === "fallback" || (!d.street && !d.cep);
-const isIncompleto = (d: Listing) =>
-  (!d.street && !d.cep) || !d.area_total_m2 || !d.price ||
-  d.geo_method === "bairro" || d.geo_method === "fallback" || !d.lat || !d.lng;
-const scoreColor = (s: number) =>
-  s >= 70 ? "#10b981" : s >= 50 ? "#f59e0b" : s >= 35 ? "#f97316" : "#ef4444";
 
-// Miniatura/foto do imóvel com fallback "sem foto" (a og:image pode falhar).
+function median(nums: number[]): number | null {
+  if (!nums.length) return null;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+// Foto do imóvel com fallback "sem foto" (a og:image pode falhar).
 function Photo({
   src, alt, wrap, label = "sem foto", labelSize = 11,
 }: { src: string | null; alt: string; wrap: React.CSSProperties; label?: string; labelSize?: number }) {
@@ -115,19 +90,7 @@ function Photo({
   );
 }
 
-export default function Explorer({ listings, pois = [], coastline, beaches }: { listings: Listing[]; pois?: PoiPoint[]; coastline?: [number, number][][]; beaches?: [number, number][][] }) {
-  // costa coletada da cidade (OSM); cai na linha fixa se ainda não coletada
-  const coast = useMemo<[number, number][][]>(() => (coastline?.length ? coastline : [ITAPOA_COASTLINE]), [coastline]);
-  const beach = useMemo<[number, number][][]>(() => beaches ?? [], [beaches]);
-  const agencies = useMemo(
-    () => [...new Set(listings.map((d) => d.agency))].sort(),
-    [listings],
-  );
-  const colors = useMemo(() => {
-    const c: Record<string, string> = {};
-    agencies.forEach((a, i) => (c[a] = PALETTE[i % PALETTE.length]));
-    return c;
-  }, [agencies]);
+export default function Explorer({ listings, pois = [] }: { listings: Listing[]; pois?: PoiPoint[] }) {
   const bairros = useMemo(
     () => [...new Set(listings.map((d) => d.neighborhood).filter(Boolean))].sort() as string[],
     [listings],
@@ -137,26 +100,46 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
     [listings],
   );
 
+  // mediana de R$/m² por bairro (base da cor dos pins e do "vs. média")
+  const medByBairro = useMemo(() => {
+    const groups: Record<string, number[]> = {};
+    for (const d of listings) {
+      const b = d.neighborhood;
+      const p = perM2(d);
+      if (b && p) (groups[b] ??= []).push(p);
+    }
+    const out: Record<string, number> = {};
+    for (const [b, arr] of Object.entries(groups)) {
+      if (arr.length >= 4) { const m = median(arr); if (m) out[b] = m; }
+    }
+    return out;
+  }, [listings]);
+
+  // classe de preço de um imóvel (verde/neutro/vermelho/sem base)
+  function priceClass(d: Listing): { cls: PriceClass; pct: number | null } {
+    const p = perM2(d);
+    const med = d.neighborhood ? medByBairro[d.neighborhood] : undefined;
+    if (!p || !med) return { cls: "sem", pct: null };
+    const ratio = p / med;
+    const pct = Math.round((ratio - 1) * 100);
+    if (ratio <= 0.92) return { cls: "barato", pct };
+    if (ratio >= 1.08) return { cls: "caro", pct };
+    return { cls: "medio", pct };
+  }
+
   // ── filtros ──
-  const [activeAg, setActiveAg] = useState<Set<string>>(new Set());
   const [bairro, setBairro] = useState("");
   const [tipo, setTipo] = useState("");
-  const [quartos, setQuartos] = useState(0); // mínimo
+  const [quartos, setQuartos] = useState(0);
   const [pmin, setPmin] = useState("");
   const [pmax, setPmax] = useState("");
-  const [tab, setTab] = useState<"todos" | "incompleto">("todos");
-  useEffect(() => setActiveAg(new Set(agencies)), [agencies]);
-
-  // ── menus sob demanda ──
-  const [agOpen, setAgOpen] = useState(false);
-  const [rankOpen, setRankOpen] = useState(false);
-  const [heatOn, setHeatOn] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [poisOn, setPoisOn] = useState(false);
 
-  // ── responsivo: no celular, Lista e Mapa não cabem lado a lado ──
+  // ── responsivo ──
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState<"lista" | "mapa">("lista");
-  const [filtersOpen, setFiltersOpen] = useState(false); // filtros recolhidos no celular
+  const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 760px)");
     const on = () => setIsMobile(mq.matches);
@@ -164,95 +147,36 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
   }, []);
-  // seleciona um imóvel e, no celular, mostra o mapa para vê-lo
   function pick(id: string) {
     setSelected(id);
     if (window.matchMedia("(max-width: 760px)").matches) setMobileView("mapa");
   }
 
-  // nota de vizinhança de um imóvel: comércios bons por perto (≤1,2 km),
-  // com peso e decaimento por distância. Devolve nota 0–100 + contagens.
-  function neighborhood(d: Listing | null) {
-    if (!d || d.lat == null || d.lng == null || !pois.length) return null;
-    const R = 1200;
-    let raw = 0;
-    let wsum = 0;
-    const counts: Record<string, number> = {};
-    for (const p of pois) {
-      const dist = haversine(d.lat, d.lng, p.lat, p.lng);
-      if (dist > R) continue;
-      counts[p.category] = (counts[p.category] ?? 0) + 1;
-      raw += p.weight * (1 - dist / R);
-      wsum += p.weight;
-    }
-    if (wsum === 0) return { score: 0, counts };
-    // normaliza contra um "bom" de referência (~6 pontos ponderados perto)
-    const score = Math.min(100, Math.round((raw / 6) * 100));
-    return { score, counts };
-  }
-
-  // ── ranking ──
-  const [scoreOn, setScoreOn] = useState(false);
-  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
-  const [profile, setProfile] = useState<string | null>(null);
-
-  // ── filtragem ──
   const filtered = useMemo(() => {
     const mn = parseInt(pmin.replace(/\D/g, "")) || 0;
     const mx = parseInt(pmax.replace(/\D/g, "")) || Infinity;
     return listings.filter((d) => {
-      if (!activeAg.has(d.agency)) return false;
       if (d.price && (d.price < mn || d.price > mx)) return false;
       if (bairro && d.neighborhood !== bairro) return false;
       if (tipo && d.type !== tipo) return false;
       if (quartos && (d.bedrooms ?? 0) < quartos) return false;
-      if (tab === "incompleto" && !isIncompleto(d)) return false;
       return true;
     });
-  }, [listings, activeAg, bairro, tipo, quartos, pmin, pmax, tab]);
+  }, [listings, bairro, tipo, quartos, pmin, pmax]);
 
-  const scores = useMemo(() => {
-    if (!scoreOn) return {} as Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }>;
-    const scorable: ScorableListing[] = filtered.map((d) => ({
-      id: d.id, price: d.price, area_total_m2: d.area_total_m2,
-      lat: d.lat, lng: d.lng, geo_method: d.geo_method,
-      neighborhood: d.neighborhood, type: d.type,
-      beach_distance_m: d.beach_distance_m,
-    }));
-    const res = scoreListings(scorable, {
-      weights,
-      coastline: coast,
-      beaches: beach,
-      pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
-    });
-    const m: Record<string, { score: number; factors: Record<ScoreFactor, number>; insight: ListingInsight }> = {};
-    res.forEach((r) => (m[r.id] = { score: r.score, factors: r.factors, insight: r.insight }));
-    return m;
-  }, [scoreOn, filtered, weights, pois, coast, beach]);
-
-  const visible = useMemo(() => {
-    if (!scoreOn) return filtered;
-    return [...filtered].sort(
-      (a, b) => (scores[b.id]?.score ?? 0) - (scores[a.id]?.score ?? 0),
-    );
-  }, [filtered, scoreOn, scores]);
-
-  // ── paginação da lista (mapa continua mostrando todos os marcadores) ──
+  // ── paginação da lista ──
   const [page, setPage] = useState(1);
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  // volta pra página 1 quando os filtros/ordenação mudam
-  useEffect(() => { setPage(1); }, [bairro, tipo, quartos, pmin, pmax, activeAg, tab, scoreOn]);
-  // mantém a página dentro do total quando a contagem muda
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  useEffect(() => { setPage(1); }, [bairro, tipo, quartos, pmin, pmax]);
   useEffect(() => { setPage((p) => Math.min(p, pageCount)); }, [pageCount]);
-  // ao selecionar um imóvel (clique no mapa/URL), pula pra página dele
   useEffect(() => {
     if (!selected) return;
-    const idx = visible.findIndex((d) => d.id === selected);
+    const idx = filtered.findIndex((d) => d.id === selected);
     if (idx >= 0) setPage(Math.floor(idx / PAGE_SIZE) + 1);
-  }, [selected, visible]);
+  }, [selected, filtered]);
   const pageItems = useMemo(
-    () => visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [visible, page],
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
   );
 
   const stats = useMemo(() => {
@@ -262,25 +186,22 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
       count: filtered.length,
       min: precos.length ? Math.min(...precos) : null,
       max: precos.length ? Math.max(...precos) : null,
-      medM2: m2s.length ? Math.round(m2s.reduce((a, b) => a + b, 0) / m2s.length) : null,
+      medM2: median(m2s),
     };
   }, [filtered]);
 
-  const totalIncompleto = useMemo(() => listings.filter(isIncompleto).length, [listings]);
   const selectedListing = useMemo(
     () => listings.find((d) => d.id === selected) ?? null,
     [listings, selected],
   );
   const activeFilters =
-    (bairro ? 1 : 0) + (tipo ? 1 : 0) + (quartos ? 1 : 0) + (pmin ? 1 : 0) + (pmax ? 1 : 0) +
-    (activeAg.size !== agencies.length ? 1 : 0);
+    (bairro ? 1 : 0) + (tipo ? 1 : 0) + (quartos ? 1 : 0) + (pmin ? 1 : 0) + (pmax ? 1 : 0);
 
   // ── mapa ──
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const layerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const poiLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const LRef = useRef<typeof import("leaflet") | null>(null);
-  const markersRef = useRef<Record<string, import("leaflet").Marker>>({});
-  const heatRef = useRef<import("leaflet").Layer | null>(null);
   const fitted = useRef(false);
   const [mapReady, setMapReady] = useState(false);
 
@@ -308,6 +229,7 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
           className: "map-dark",
         }).addTo(map);
       }
+      poiLayerRef.current = L.layerGroup().addTo(map);
       layerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
       setMapReady(true);
@@ -319,81 +241,46 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
     };
   }, []);
 
+  // pins dos imóveis
   useEffect(() => {
     const L = LRef.current, map = mapRef.current, layer = layerRef.current;
     if (!L || !map || !layer) return;
     layer.clearLayers();
-    markersRef.current = {};
     const pts: [number, number][] = [];
-    visible.forEach((d) => {
+    filtered.forEach((d) => {
       if (d.lat == null || d.lng == null) return;
-      const color = colors[d.agency] || "#2563eb";
+      const { cls } = priceClass(d);
+      const color = cls === "sem" ? "#2a2a2e" : PRICE_COLOR[cls];
+      const txt = cls === "sem" ? "#f4f1ea" : "#0a0a0b";
       const approx = isApprox(d);
-      const sc = scoreOn ? scores[d.id]?.score : undefined;
       const sel = d.id === selected;
-      const html = `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
-        <div style="background:${color};color:#fff;padding:3px 8px;border-radius:8px;font:700 11px system-ui;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.35);${sel ? "outline:3px solid #fff;outline-offset:1px;" : ""}${approx ? "opacity:.75;border:1px dashed rgba(255,255,255,.9);" : "border:1px solid rgba(255,255,255,.25);"}">${shortPrice(d.price)}</div>
-        ${sc != null ? `<div style="background:${scoreColor(sc)};color:#fff;border-radius:5px;padding:0 6px;font:700 9px system-ui;box-shadow:0 1px 3px rgba(0,0,0,.3);">${sc}</div>` : ""}
-      </div>`;
-      const icon = L.divIcon({ className: "", html, iconSize: [76, sc != null ? 38 : 22], iconAnchor: [38, sc != null ? 19 : 11] });
+      const html = `<div style="background:${color};color:${txt};padding:3px 8px;border-radius:8px;font:700 11px system-ui;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.5);${sel ? "outline:2px solid #d6b25e;outline-offset:2px;" : ""}${approx ? "opacity:.72;border:1px dashed rgba(255,255,255,.6);" : "border:1px solid rgba(0,0,0,.2);"}">${shortPrice(d.price)}</div>`;
+      const icon = L.divIcon({ className: "", html, iconSize: [70, 22], iconAnchor: [35, 11] });
       const m = L.marker([d.lat, d.lng], { icon, zIndexOffset: sel ? 1000 : 0 }).addTo(layer);
       m.on("click", () => setSelected(d.id));
-      markersRef.current[d.id] = m;
       pts.push([d.lat, d.lng]);
     });
     if (!fitted.current && pts.length) {
       map.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [visible, scores, scoreOn, colors, mapReady, selected]);
+  }, [filtered, mapReady, selected, medByBairro]);
 
-  // camada de calor (densidade ponderada de comércios bons)
+  // pontos de referência (hospital, escola, mercado…)
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !LRef.current) return;
-    let cancelled = false;
-    (async () => {
-      await import("leaflet.heat");
-      if (cancelled || !mapRef.current) return;
-      const Lh = LRef.current as unknown as {
-        heatLayer: (pts: [number, number, number][], opts: object) => import("leaflet").Layer;
-      };
-      if (heatRef.current) {
-        map.removeLayer(heatRef.current);
-        heatRef.current = null;
-      }
-      if (heatOn && pois.length) {
-        const maxW = Math.max(...pois.map((p) => p.weight), 1);
-        const pts = pois.map(
-          (p) => [p.lat, p.lng, p.weight / maxW] as [number, number, number],
-        );
-        heatRef.current = Lh.heatLayer(pts, {
-          radius: 34,
-          blur: 24,
-          maxZoom: 16,
-          minOpacity: 0.35,
-          gradient: { 0.2: "#1d4ed8", 0.45: "#0ea5e9", 0.65: "#10b981", 0.8: "#f59e0b", 1: "#e11d48" },
-        }).addTo(map);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [heatOn, pois, mapReady]);
+    const L = LRef.current, map = mapRef.current, layer = poiLayerRef.current;
+    if (!L || !map || !layer) return;
+    layer.clearLayers();
+    if (!poisOn) return;
+    pois.forEach((p) => {
+      const label = POI_LABEL[p.category] ?? p.category;
+      const html = `<div title="${label}${p.name ? " · " + p.name : ""}" style="width:14px;height:14px;border-radius:99px;background:rgba(214,178,94,.22);border:1.5px solid #d6b25e;box-shadow:0 1px 3px rgba(0,0,0,.5);"></div>`;
+      const icon = L.divIcon({ className: "", html, iconSize: [14, 14], iconAnchor: [7, 7] });
+      L.marker([p.lat, p.lng], { icon, interactive: true }).addTo(layer)
+        .bindTooltip(`${label}${p.name ? " · " + p.name : ""}`, { direction: "top" });
+    });
+  }, [poisOn, pois, mapReady]);
 
-  // imóvel vindo por URL (?imovel=<id>) — abre já selecionado (p/ comparar
-  // com o anúncio a partir da auditoria).
-  useEffect(() => {
-    try {
-      const id = new URLSearchParams(window.location.search).get("imovel");
-      if (id) {
-        setSelected(id);
-        if (window.matchMedia("(max-width: 760px)").matches) setMobileView("mapa");
-      }
-    } catch {
-      /* ignora */
-    }
-  }, []);
-
-  // ao mostrar o mapa (troca de aba no celular), recalcula o tamanho
   useEffect(() => {
     if (mapRef.current) {
       const t = setTimeout(() => mapRef.current?.invalidateSize(), 80);
@@ -401,7 +288,6 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
     }
   }, [mobileView, isMobile, mapReady]);
 
-  // voa até o selecionado
   useEffect(() => {
     const map = mapRef.current;
     const d = selectedListing;
@@ -409,20 +295,23 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
     map.flyTo([d.lat, d.lng], Math.max(map.getZoom(), 15), { duration: 0.6 });
   }, [selectedListing, mapReady]);
 
-  function applyProfile(id: string) {
-    const p = SCORE_PROFILES.find((x) => x.id === id);
-    if (!p) return;
-    setProfile(id);
-    setWeights({ ...p.weights });
-  }
-  function setW(key: ScoreFactor, v: number) {
-    setProfile("custom");
-    setWeights((w) => ({ ...w, [key]: v }));
-  }
+  // imóvel vindo por URL (?imovel=<id>)
+  useEffect(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get("imovel");
+      if (id) {
+        setSelected(id);
+        if (window.matchMedia("(max-width: 760px)").matches) setMobileView("mapa");
+      }
+    } catch { /* ignora */ }
+  }, []);
+
   function clearFilters() {
     setBairro(""); setTipo(""); setQuartos(0); setPmin(""); setPmax("");
-    setActiveAg(new Set(agencies));
   }
+
+  const sel = selectedListing;
+  const selPc = sel ? priceClass(sel) : null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)" }}>
@@ -439,14 +328,11 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
 
         {isMobile && (
           <button style={sx.menuBtn(filtersOpen || activeFilters > 0)} onClick={() => setFiltersOpen((v) => !v)}>
-            ⚙️ Filtros{activeFilters > 0 ? ` (${activeFilters})` : ""} {filtersOpen ? "▲" : "▾"}
+            Filtros{activeFilters > 0 ? ` (${activeFilters})` : ""} {filtersOpen ? "▲" : "▾"}
           </button>
         )}
 
-        <div style={{
-          ...sx.filters,
-          ...(isMobile ? { width: "100%", display: filtersOpen ? "flex" : "none" } : {}),
-        }}>
+        <div style={{ ...sx.filters, ...(isMobile ? { width: "100%", display: filtersOpen ? "flex" : "none" } : {}) }}>
           <select style={sx.field} value={tipo} onChange={(e) => setTipo(e.target.value)}>
             <option value="">Tipo: todos</option>
             {tipos.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -470,82 +356,10 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
             ))}
           </select>
 
-          {/* Imobiliárias (dropdown) */}
-          <div style={{ position: "relative" }}>
-            <button style={sx.menuBtn(agOpen)} onClick={() => { setAgOpen((v) => !v); setRankOpen(false); }}>
-              🏢 Imobiliárias ({activeAg.size}/{agencies.length}) ▾
-            </button>
-            {agOpen && (
-              <>
-                <div style={sx.backdrop} onClick={() => setAgOpen(false)} />
-                <div style={sx.pop}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                    <button style={sx.link} onClick={() => setActiveAg(new Set(agencies))}>todas</button>
-                    <button style={sx.link} onClick={() => setActiveAg(new Set())}>nenhuma</button>
-                  </div>
-                  <div style={{ display: "grid", gap: 4, maxHeight: 260, overflow: "auto" }}>
-                    {agencies.map((a) => {
-                      const on = activeAg.has(a);
-                      return (
-                        <label key={a} style={sx.agRow}>
-                          <input type="checkbox" checked={on} onChange={() => {
-                            const s = new Set(activeAg);
-                            if (s.has(a)) s.delete(a); else s.add(a);
-                            setActiveAg(s);
-                          }} style={{ accentColor: colors[a] }} />
-                          <span style={{ width: 8, height: 8, borderRadius: 99, background: colors[a], display: "inline-block" }} />
-                          <span style={{ fontSize: 12.5 }}>{a}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Ranking (drawer) */}
-          <div style={{ position: "relative" }}>
-            <button style={sx.menuBtn(scoreOn || rankOpen)} onClick={() => { setRankOpen((v) => !v); setAgOpen(false); }}>
-              🏆 Ordenar{scoreOn ? " · ativo" : ""} ▾
-            </button>
-            {rankOpen && (
-              <>
-                <div style={sx.backdrop} onClick={() => setRankOpen(false)} />
-                <div style={{ ...sx.pop, width: 300 }}>
-                  <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700 }}>Ranking inteligente</span>
-                    <input type="checkbox" checked={scoreOn} onChange={(e) => setScoreOn(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
-                  </label>
-                  {scoreOn && (
-                    <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {SCORE_PROFILES.map((p) => (
-                          <button key={p.id} title={p.desc} onClick={() => applyProfile(p.id)} style={sx.profile(profile === p.id)}>
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
-                      {FACTORS.map((f) => (
-                        <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, minWidth: 62, color: "var(--muted)" }}>{f.icon} {f.label}</span>
-                          <input type="range" min={0} max={100} value={weights[f.key]}
-                            onChange={(e) => setW(f.key, parseInt(e.target.value))}
-                            style={{ flex: 1, accentColor: f.color }} />
-                          <span style={{ fontSize: 11, minWidth: 30, textAlign: "right", color: f.color, fontWeight: 700 }}>{weights[f.key]}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-
           {pois.length > 0 && (
-            <button style={sx.menuBtn(heatOn)} onClick={() => setHeatOn((v) => !v)}
-              title="Mapa de calor de comércios (escola, farmácia, mercado, saúde…)">
-              🔥 Comércios
+            <button style={sx.menuBtn(poisOn)} onClick={() => setPoisOn((v) => !v)}
+              title="Mostrar hospital, escola, mercado e outros pontos de referência">
+              Pontos de referência
             </button>
           )}
 
@@ -555,17 +369,17 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
         </div>
 
         <div style={{ flex: 1 }} />
-        <a href="/admin" style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>Painel →</a>
+        <a href="/admin" style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>Painel</a>
       </header>
 
       {/* alternância Lista/Mapa (só no celular) */}
       {isMobile && (
         <div style={sx.mobileTabs}>
           <button style={sx.mtab(mobileView === "lista")} onClick={() => setMobileView("lista")}>
-            📋 Lista ({stats.count})
+            Lista ({stats.count})
           </button>
           <button style={sx.mtab(mobileView === "mapa")} onClick={() => setMobileView("mapa")}>
-            🗺️ Mapa
+            Mapa
           </button>
         </div>
       )}
@@ -582,58 +396,51 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
               <strong style={{ fontSize: 15 }}>{stats.count}</strong>
               <span style={{ color: "var(--muted)", fontSize: 13 }}>imóveis</span>
             </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {(["todos", "incompleto"] as const).map((t) => (
-                <button key={t} onClick={() => setTab(t)} style={sx.seg(tab === t)}>
-                  {t === "todos" ? "Todos" : `⚠️ ${totalIncompleto}`}
-                </button>
-              ))}
-            </div>
+            {stats.min != null && (
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>
+                {shortPrice(stats.min)}–{shortPrice(stats.max)}
+                {stats.medM2 ? ` · R$/m² méd. ${shortPrice(stats.medM2)}` : ""}
+              </span>
+            )}
           </div>
-          {stats.min != null && (
-            <div style={sx.rangeRow}>
-              <span>{shortPrice(stats.min)} – {shortPrice(stats.max)}</span>
-              {stats.medM2 && <span>· R$/m² méd. {shortPrice(stats.medM2)}</span>}
-            </div>
-          )}
 
           <div style={{ padding: "8px 12px 24px", overflow: "auto", flex: 1 }}>
-            {visible.length === 0 && (
+            {filtered.length === 0 && (
               <div style={{ color: "var(--muted)", fontSize: 13, padding: 24, textAlign: "center" }}>
                 Nenhum imóvel com esses filtros.
               </div>
             )}
             {pageItems.map((d) => {
               const p2 = perM2(d);
-              const sc = scoreOn ? scores[d.id]?.score : undefined;
-              const sel = d.id === selected;
+              const pc = priceClass(d);
+              const selRow = d.id === selected;
               return (
-                <div key={d.id} onClick={() => pick(d.id)} style={sx.card(sel)}>
+                <div key={d.id} onClick={() => pick(d.id)} style={sx.card(selRow)}>
                   <div style={{ display: "flex", gap: 11 }}>
                     <Photo src={d.image_url} alt={d.title ?? d.type ?? "Imóvel"}
                       wrap={{ width: 74, height: 74, borderRadius: 10 }} labelSize={9} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
                         <div>
-                          <div style={{ fontWeight: 800, fontSize: 15, color: "var(--accent)", letterSpacing: "-0.02em" }}>
+                          <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: "-0.02em" }}>
                             {fmtPrice(d.price)}
                           </div>
                           {p2 && <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>R$ {p2.toLocaleString("pt-BR")}/m²</div>}
                         </div>
-                        {sc != null && (
-                          <span style={{ background: scoreColor(sc), color: "#fff", borderRadius: 7, padding: "2px 8px", fontSize: 12, fontWeight: 800, height: "fit-content" }}>{sc}</span>
+                        {pc.cls !== "sem" && pc.pct != null && (
+                          <span style={{ background: "transparent", color: PRICE_COLOR[pc.cls], border: `1px solid ${PRICE_COLOR[pc.cls]}`, borderRadius: 7, padding: "2px 7px", fontSize: 11, fontWeight: 800, height: "fit-content", whiteSpace: "nowrap" }}>
+                            {pc.pct > 0 ? "+" : ""}{pc.pct}%
+                          </span>
                         )}
                       </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
                         {d.type && <span style={sx.pill}>{d.type}</span>}
-                        {d.bedrooms ? <span style={sx.metaPill}>🛏 {d.bedrooms}</span> : null}
-                        {d.parking ? <span style={sx.metaPill}>🚗 {d.parking}</span> : null}
-                        {d.area_total_m2 ? <span style={sx.metaPill}>📐 {fmtArea(d.area_total_m2)}</span> : null}
+                        {d.bedrooms ? <span style={sx.metaPill}>{d.bedrooms} quartos</span> : null}
+                        {d.parking ? <span style={sx.metaPill}>{d.parking} vagas</span> : null}
+                        {d.area_total_m2 ? <span style={sx.metaPill}>{fmtArea(d.area_total_m2)}</span> : null}
                       </div>
-                      <div style={{ fontSize: 12, marginTop: 7, display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ width: 7, height: 7, borderRadius: 99, background: colors[d.agency], display: "inline-block", flexShrink: 0 }} />
-                        <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.neighborhood ?? "sem bairro"} · {d.agency}</span>
-                        {isApprox(d) && <span style={{ color: "var(--warn)" }}>· 📍</span>}
+                      <div style={{ fontSize: 12, marginTop: 7, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {d.neighborhood ?? "sem bairro"} · {d.agency}{isApprox(d) ? " · local. aprox." : ""}
                       </div>
                     </div>
                   </div>
@@ -642,16 +449,12 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
             })}
           </div>
 
-          {/* paginação da lista */}
           {pageCount > 1 && (
             <div style={sx.pager}>
               <button style={sx.pagerBtn(page <= 1)} disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))} aria-label="Página anterior">‹</button>
               <span style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 600 }}>
                 {page} / {pageCount}
-                <span style={{ marginLeft: 6, opacity: 0.8 }}>
-                  ({(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, visible.length)} de {visible.length})
-                </span>
               </span>
               <button style={sx.pagerBtn(page >= pageCount)} disabled={page >= pageCount}
                 onClick={() => setPage((p) => Math.min(pageCount, p + 1))} aria-label="Próxima página">›</button>
@@ -666,107 +469,57 @@ export default function Explorer({ listings, pois = [], coastline, beaches }: { 
         }}>
           <div id="exp-map" style={{ position: "absolute", inset: 0 }} />
 
+          {/* legenda das cores */}
+          <div style={sx.legend}>
+            {([["barato", "abaixo da média"], ["medio", "na média"], ["caro", "acima"]] as const).map(([k, lbl]) => (
+              <span key={k} style={sx.legendItem}>
+                <span style={{ width: 10, height: 10, borderRadius: 99, background: PRICE_COLOR[k], display: "inline-block" }} />
+                {lbl}
+              </span>
+            ))}
+          </div>
+
           {/* painel de detalhe */}
-          {selectedListing && (
+          {sel && (
             <div style={isMobile ? sx.detailMobile : sx.detail}>
               <button style={sx.detailClose} onClick={() => setSelected(null)} aria-label="fechar">✕</button>
-              <Photo key={selectedListing.id} src={selectedListing.image_url}
-                alt={selectedListing.title ?? selectedListing.type ?? "Imóvel"}
+              <Photo key={sel.id} src={sel.image_url}
+                alt={sel.title ?? sel.type ?? "Imóvel"}
                 wrap={{ width: "100%", aspectRatio: "16 / 10", borderRadius: 10, marginBottom: 12 }}
                 labelSize={12} label="sem foto" />
               <div style={{ fontSize: 12.5, color: "var(--muted)" }}>
-                {selectedListing.title ?? selectedListing.type ?? "Imóvel"}
+                {sel.title ?? sel.type ?? "Imóvel"}
               </div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: "var(--accent)", letterSpacing: "-0.02em", marginTop: 2 }}>
-                {fmtPrice(selectedListing.price)}
+              <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", marginTop: 2 }}>
+                {fmtPrice(sel.price)}
               </div>
-              {perM2(selectedListing) && (
+              {perM2(sel) && (
                 <div style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 600 }}>
-                  R$ {perM2(selectedListing)!.toLocaleString("pt-BR")}/m²
+                  R$ {perM2(sel)!.toLocaleString("pt-BR")}/m²
+                  {selPc && selPc.cls !== "sem" && selPc.pct != null && (
+                    <span style={{ marginLeft: 8, color: PRICE_COLOR[selPc.cls], fontWeight: 800 }}>
+                      {selPc.pct > 0 ? "+" : ""}{selPc.pct}% vs. média do bairro
+                    </span>
+                  )}
                 </div>
               )}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-                {selectedListing.type && <span style={sx.pill}>{selectedListing.type}</span>}
-                {selectedListing.bedrooms ? <span style={sx.metaPill}>🛏 {selectedListing.bedrooms} quartos</span> : null}
-                {selectedListing.suites ? <span style={sx.metaPill}>🛁 {selectedListing.suites} suíte(s)</span> : null}
-                {selectedListing.parking ? <span style={sx.metaPill}>🚗 {selectedListing.parking} vaga(s)</span> : null}
-                {selectedListing.area_total_m2 ? <span style={sx.metaPill}>📐 {fmtArea(selectedListing.area_total_m2)}</span> : null}
+                {sel.type && <span style={sx.pill}>{sel.type}</span>}
+                {sel.bedrooms ? <span style={sx.metaPill}>{sel.bedrooms} quartos</span> : null}
+                {sel.suites ? <span style={sx.metaPill}>{sel.suites} suíte(s)</span> : null}
+                {sel.parking ? <span style={sx.metaPill}>{sel.parking} vaga(s)</span> : null}
+                {sel.area_total_m2 ? <span style={sx.metaPill}>{fmtArea(sel.area_total_m2)}</span> : null}
               </div>
-              <div style={{ fontSize: 13, marginTop: 12, display: "flex", alignItems: "center", gap: 7 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: colors[selectedListing.agency], display: "inline-block" }} />
-                <span style={{ color: "var(--ink)", fontWeight: 600 }}>{selectedListing.agency}</span>
+              <div style={{ fontSize: 13, marginTop: 12, color: "var(--ink)", fontWeight: 600 }}>
+                {sel.agency}
               </div>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
-                {[selectedListing.street, selectedListing.neighborhood].filter(Boolean).join(", ") || "Endereço não informado"}
-                {isApprox(selectedListing) && " · 📍 aproximado"}
+                {[sel.street, sel.neighborhood].filter(Boolean).join(", ") || "Endereço não informado"}
+                {isApprox(sel) && " · localização aproximada"}
               </div>
 
-              {/* avaliação: preço justo, oferta e motivos (só com ranking ligado) */}
-              {scoreOn && (() => {
-                const info = scores[selectedListing.id];
-                if (!info) return null;
-                const ins = info.insight;
-                const profLabel = SCORE_PROFILES.find((p) => p.id === profile)?.label ?? "Personalizado";
-                const reasons = buildReasons({
-                  lat: selectedListing.lat, lng: selectedListing.lng, insight: ins,
-                  pois: pois.map((p) => ({ category: p.category, lat: p.lat, lng: p.lng })),
-                  coastline: coast, beaches: beach, declaredBeachM: selectedListing.beach_distance_m,
-                });
-                return (
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: "var(--accent-weak)", border: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-ink)" }}>Avaliação · {profLabel}</span>
-                      <span style={{ background: scoreColor(info.score), color: "#fff", borderRadius: 8, padding: "2px 10px", fontSize: 14, fontWeight: 800 }}>{info.score}</span>
-                    </div>
-                    {ins.fairPrice != null && (
-                      <div style={{ fontSize: 12.5, marginTop: 8, color: "var(--ink)" }}>
-                        Preço justo estimado: <strong>{fmtPrice(ins.fairPrice)}</strong>
-                        {ins.discountPct != null && (
-                          <span style={{ marginLeft: 6, fontWeight: 800, color: ins.discountPct >= 0 ? "var(--ok)" : "var(--danger)" }}>
-                            {ins.discountPct >= 0 ? "−" : "+"}{Math.round(Math.abs(ins.discountPct) * 100)}%
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {reasons.length > 0 && (
-                      <ul style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
-                        {reasons.map((r, i) => (
-                          <li key={i} style={{ fontSize: 12, color: "var(--ink)", display: "flex", gap: 6 }}>
-                            <span style={{ color: "var(--ok)", fontWeight: 800 }}>✓</span>{r}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
-                      Confiança do dado: {ins.confidence}%{ins.sample ? ` · base: ${ins.sample} comparáveis` : ""}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* nota de vizinhança (comércios por perto) */}
-              {(() => {
-                const n = neighborhood(selectedListing);
-                if (!n) return null;
-                const cats = Object.entries(n.counts)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([c, q]) => `${q} ${POI_LABEL[c] ?? c}`)
-                  .slice(0, 4);
-                return (
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: "var(--paper-2)", border: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>Vizinhança (≤1,2 km)</span>
-                      <span style={{ background: scoreColor(n.score), color: "#fff", borderRadius: 7, padding: "2px 9px", fontSize: 12.5, fontWeight: 800 }}>{n.score}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-                      {cats.length ? cats.join(" · ") : "Nenhum comércio mapeado por perto."}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <a href={selectedListing.source_url} target="_blank" rel="noreferrer" className="btn" style={{ marginTop: 14, width: "100%" }}>
-                Ver anúncio →
+              <a href={sel.source_url} target="_blank" rel="noreferrer" className="btn" style={{ marginTop: 14, width: "100%" }}>
+                Ver anúncio original
               </a>
             </div>
           )}
@@ -783,12 +536,10 @@ const sx = {
     padding: "10px 16px", background: "var(--paper)",
     borderBottom: "1px solid var(--border)", zIndex: 600,
   } as React.CSSProperties,
-  brand: {
-    display: "inline-flex", alignItems: "center", gap: 8, color: "var(--ink)",
-  } as React.CSSProperties,
+  brand: { display: "inline-flex", alignItems: "center", gap: 8, color: "var(--ink)" } as React.CSSProperties,
   logo: {
     display: "grid", placeItems: "center", width: 26, height: 26, borderRadius: 7,
-    background: "var(--accent)", color: "#fff", boxShadow: "var(--shadow-sm)",
+    background: "var(--accent)", color: "var(--on-accent)", boxShadow: "var(--shadow-sm)",
   } as React.CSSProperties,
   filters: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" } as React.CSSProperties,
   field: {
@@ -799,10 +550,7 @@ const sx = {
     display: "flex", alignItems: "center", gap: 6, padding: "0 4px",
     border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--paper)",
   } as React.CSSProperties,
-  price: {
-    width: 82, padding: "8px 6px", border: "none", background: "transparent",
-    color: "var(--ink)", fontSize: 13,
-  } as React.CSSProperties,
+  price: { width: 82, padding: "8px 6px", border: "none", background: "transparent", color: "var(--ink)", fontSize: 13 } as React.CSSProperties,
   menuBtn: (on: boolean) => ({
     padding: "8px 12px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600, cursor: "pointer",
     border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
@@ -813,38 +561,14 @@ const sx = {
     padding: "8px 10px", borderRadius: "var(--radius-sm)", fontSize: 13, fontWeight: 600,
     cursor: "pointer", border: "1px solid var(--border)", background: "transparent", color: "var(--muted)",
   } as React.CSSProperties,
-  backdrop: { position: "fixed", inset: 0, zIndex: 40 } as React.CSSProperties,
-  pop: {
-    position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 50, width: 260,
-    background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 12,
-    boxShadow: "var(--shadow-lg)", padding: 12,
-  } as React.CSSProperties,
-  link: { background: "transparent", border: "none", color: "var(--accent)", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 } as React.CSSProperties,
-  agRow: { display: "flex", alignItems: "center", gap: 7, padding: "4px 4px", borderRadius: 7, cursor: "pointer" } as React.CSSProperties,
-  profile: (on: boolean) => ({
-    padding: "5px 11px", borderRadius: 999, fontSize: 11.5, cursor: "pointer", fontWeight: 600,
-    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-    background: on ? "var(--accent)" : "transparent",
-    color: on ? "#fff" : "var(--muted)",
-  }) as React.CSSProperties,
   list: {
     width: 380, minWidth: 320, display: "flex", flexDirection: "column",
     borderRight: "1px solid var(--border)", background: "var(--paper)",
   } as React.CSSProperties,
   listHead: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
-    padding: "12px 14px 8px",
+    padding: "12px 14px", borderBottom: "1px solid var(--border)", gap: 8, flexWrap: "wrap",
   } as React.CSSProperties,
-  rangeRow: {
-    display: "flex", gap: 6, padding: "0 14px 10px", fontSize: 12, color: "var(--muted)",
-    borderBottom: "1px solid var(--border)",
-  } as React.CSSProperties,
-  seg: (on: boolean) => ({
-    padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
-    border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-    background: on ? "var(--accent)" : "var(--paper)",
-    color: on ? "#fff" : "var(--muted)",
-  }) as React.CSSProperties,
   card: (sel: boolean) => ({
     border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
     borderRadius: "var(--radius)", padding: 13, marginBottom: 9, cursor: "pointer",
@@ -854,6 +578,7 @@ const sx = {
   pill: {
     display: "inline-block", padding: "2px 9px", borderRadius: 999,
     background: "var(--accent-weak)", color: "var(--accent-ink)", fontSize: 11, fontWeight: 600,
+    border: "1px solid var(--border)",
   } as React.CSSProperties,
   metaPill: {
     display: "inline-block", padding: "2px 8px", borderRadius: 999,
@@ -878,8 +603,16 @@ const sx = {
     flex: 1, padding: "10px 12px", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer",
     border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
     background: on ? "var(--accent)" : "var(--paper)",
-    color: on ? "#fff" : "var(--muted)",
+    color: on ? "var(--on-accent)" : "var(--muted)",
   }) as React.CSSProperties,
+  legend: {
+    position: "absolute", left: 16, bottom: 16, zIndex: 450,
+    display: "flex", gap: 12, flexWrap: "wrap", padding: "8px 12px",
+    background: "color-mix(in srgb, var(--paper) 88%, transparent)",
+    border: "1px solid var(--border)", borderRadius: 10, boxShadow: "var(--shadow)",
+    fontSize: 11.5, color: "var(--muted)",
+  } as React.CSSProperties,
+  legendItem: { display: "inline-flex", alignItems: "center", gap: 6 } as React.CSSProperties,
   detail: {
     position: "absolute", top: 16, right: 16, zIndex: 500, width: 300,
     background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 14,
@@ -894,6 +627,6 @@ const sx = {
   detailClose: {
     position: "absolute", top: 10, right: 10, width: 26, height: 26, borderRadius: 7,
     border: "1px solid var(--border)", background: "var(--paper)", color: "var(--muted)",
-    cursor: "pointer", fontSize: 12,
+    cursor: "pointer", fontSize: 12, zIndex: 2,
   } as React.CSSProperties,
 };
