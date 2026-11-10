@@ -22,7 +22,7 @@ async function loadListings(): Promise<Listing[]> {
   try {
     const db = getServiceClient();
     const cols =
-      "id,title,type,price,area_total_m2,bedrooms,bathrooms,suites,parking,neighborhood,street,cep,lat,lng,geo_method,image_url,source_url,agencies(name)";
+      "id,title,type,price,area_total_m2,built_area_m2,bedrooms,bathrooms,suites,parking,neighborhood,street,cep,lat,lng,geo_method,image_url,source_url,agencies(name)";
     // Só imóveis ATIVOS entram no mapa. Paginado para trazer todos (PostgREST
     // limita ~1.000/req). Fallback sem o filtro caso a coluna status não exista.
     type Page = PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>;
