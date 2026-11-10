@@ -100,31 +100,43 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
     [listings],
   );
 
-  // mediana de R$/m² por bairro (base da cor dos pins e do "vs. média")
-  const medByBairro = useMemo(() => {
-    const groups: Record<string, number[]> = {};
+  // medianas de R$/m² individualizadas por TIPO — terreno compara com terreno,
+  // apê com apê (não misturar, senão terreno vira sempre "barato" e apê "caro").
+  // Primária: por bairro + tipo; fallback: por tipo na cidade toda. Mínimo de
+  // 4 exemplos para a mediana valer.
+  const medians = useMemo(() => {
+    const byBairroType: Record<string, number[]> = {};
+    const byType: Record<string, number[]> = {};
     for (const d of listings) {
-      const b = d.neighborhood;
       const p = perM2(d);
-      if (b && p) (groups[b] ??= []).push(p);
+      if (!p || !d.type) continue;
+      (byType[d.type] ??= []).push(p);
+      if (d.neighborhood) (byBairroType[`${d.neighborhood}||${d.type}`] ??= []).push(p);
     }
-    const out: Record<string, number> = {};
-    for (const [b, arr] of Object.entries(groups)) {
-      if (arr.length >= 4) { const m = median(arr); if (m) out[b] = m; }
-    }
-    return out;
+    const reduce = (groups: Record<string, number[]>) => {
+      const out: Record<string, number> = {};
+      for (const [k, arr] of Object.entries(groups)) {
+        if (arr.length >= 4) { const m = median(arr); if (m) out[k] = m; }
+      }
+      return out;
+    };
+    return { byBairroType: reduce(byBairroType), byType: reduce(byType) };
   }, [listings]);
 
-  // classe de preço de um imóvel (verde/neutro/vermelho/sem base)
-  function priceClass(d: Listing): { cls: PriceClass; pct: number | null } {
+  // classe de preço de um imóvel vs. a mediana do MESMO tipo
+  // (verde = abaixo, neutro = na média, vermelho = acima, sem = sem base).
+  function priceClass(d: Listing): { cls: PriceClass; pct: number | null; base: "bairro" | "tipo" | null } {
     const p = perM2(d);
-    const med = d.neighborhood ? medByBairro[d.neighborhood] : undefined;
-    if (!p || !med) return { cls: "sem", pct: null };
+    if (!p || !d.type) return { cls: "sem", pct: null, base: null };
+    const key = d.neighborhood ? `${d.neighborhood}||${d.type}` : "";
+    const med = (key && medians.byBairroType[key]) || medians.byType[d.type];
+    const base: "bairro" | "tipo" | null = key && medians.byBairroType[key] ? "bairro" : med ? "tipo" : null;
+    if (!med || !base) return { cls: "sem", pct: null, base: null };
     const ratio = p / med;
     const pct = Math.round((ratio - 1) * 100);
-    if (ratio <= 0.92) return { cls: "barato", pct };
-    if (ratio >= 1.08) return { cls: "caro", pct };
-    return { cls: "medio", pct };
+    if (ratio <= 0.92) return { cls: "barato", pct, base };
+    if (ratio >= 1.08) return { cls: "caro", pct, base };
+    return { cls: "medio", pct, base };
   }
 
   // ── filtros ──
@@ -264,7 +276,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
       map.fitBounds(pts, { padding: [50, 50], maxZoom: 15 });
       fitted.current = true;
     }
-  }, [filtered, mapReady, selected, medByBairro]);
+  }, [filtered, mapReady, selected, medians]);
 
   // pontos de referência (hospital, escola, mercado…)
   useEffect(() => {
@@ -498,7 +510,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                   R$ {perM2(sel)!.toLocaleString("pt-BR")}/m²
                   {selPc && selPc.cls !== "sem" && selPc.pct != null && (
                     <span style={{ marginLeft: 8, color: PRICE_COLOR[selPc.cls], fontWeight: 800 }}>
-                      {selPc.pct > 0 ? "+" : ""}{selPc.pct}% vs. média do bairro
+                      {selPc.pct > 0 ? "+" : ""}{selPc.pct}% vs. média {selPc.base === "bairro" ? "do bairro" : "do tipo na cidade"} ({sel.type})
                     </span>
                   )}
                 </div>
