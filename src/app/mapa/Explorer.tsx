@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
+import { normBairro } from "@/lib/neighborhood";
 
 export interface Listing {
   id: string;
@@ -66,6 +67,8 @@ const perM2 = (d: Listing) => {
   const a = areaFor(d);
   return d.price && a ? Math.round(d.price / a) : null;
 };
+// chave de bairro normalizada (une só diferenças de formatação entre sites)
+const bkey = (d: Listing) => (d.neighborhood ? normBairro(d.neighborhood) : "");
 const isApprox = (d: Listing) =>
   d.geo_method === "bairro" || d.geo_method === "fallback" || (!d.street && !d.cep);
 
@@ -99,10 +102,34 @@ function Photo({
 }
 
 export default function Explorer({ listings, pois = [], chrome = "admin" }: { listings: Listing[]; pois?: PoiPoint[]; chrome?: "admin" | "conta" }) {
+  // bairros agrupados pela chave normalizada; o rótulo exibido é a grafia mais
+  // frequente do grupo (ex.: "Balneário Cambijú (22)" vence "Cambiju (2)").
+  const bairroInfo = useMemo(() => {
+    const groups = new Map<string, Map<string, number>>(); // chave → (grafia → contagem)
+    for (const d of listings) {
+      if (!d.neighborhood) continue;
+      const k = normBairro(d.neighborhood);
+      if (!k) continue;
+      const m = groups.get(k) ?? new Map<string, number>();
+      m.set(d.neighborhood, (m.get(d.neighborhood) ?? 0) + 1);
+      groups.set(k, m);
+    }
+    const out = new Map<string, { label: string; count: number }>();
+    for (const [k, m] of groups) {
+      let label = "", best = -1, total = 0;
+      for (const [name, c] of m) { total += c; if (c > best) { best = c; label = name; } }
+      out.set(k, { label, count: total });
+    }
+    return out;
+  }, [listings]);
   const bairros = useMemo(
-    () => [...new Set(listings.map((d) => d.neighborhood).filter(Boolean))].sort() as string[],
-    [listings],
+    () => [...bairroInfo.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label, "pt-BR")),
+    [bairroInfo],
   );
+  const bairroLabel = (d: Listing) => {
+    const k = bkey(d);
+    return (k && bairroInfo.get(k)?.label) || d.neighborhood || "sem bairro";
+  };
   const tipos = useMemo(
     () => [...new Set(listings.map((d) => d.type).filter(Boolean))].sort() as string[],
     [listings],
@@ -119,7 +146,8 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
       const p = perM2(d);
       if (!p || !d.type) continue;
       (byType[d.type] ??= []).push(p);
-      if (d.neighborhood) (byBairroType[`${d.neighborhood}||${d.type}`] ??= []).push(p);
+      const k = bkey(d);
+      if (k) (byBairroType[`${k}||${d.type}`] ??= []).push(p);
     }
     const reduce = (groups: Record<string, number[]>) => {
       const out: Record<string, number> = {};
@@ -136,7 +164,8 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
   function priceClass(d: Listing): { cls: PriceClass; pct: number | null; base: "bairro" | "tipo" | null } {
     const p = perM2(d);
     if (!p || !d.type) return { cls: "sem", pct: null, base: null };
-    const key = d.neighborhood ? `${d.neighborhood}||${d.type}` : "";
+    const k = bkey(d);
+    const key = k ? `${k}||${d.type}` : "";
     const med = (key && medians.byBairroType[key]) || medians.byType[d.type];
     const base: "bairro" | "tipo" | null = key && medians.byBairroType[key] ? "bairro" : med ? "tipo" : null;
     if (!med || !base) return { cls: "sem", pct: null, base: null };
@@ -177,7 +206,7 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
     const mx = parseInt(pmax.replace(/\D/g, "")) || Infinity;
     return listings.filter((d) => {
       if (d.price && (d.price < mn || d.price > mx)) return false;
-      if (bairro && d.neighborhood !== bairro) return false;
+      if (bairro && bkey(d) !== bairro) return false;
       if (tipo && d.type !== tipo) return false;
       if (quartos && (d.bedrooms ?? 0) < quartos) return false;
       return true;
@@ -371,8 +400,8 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
 
           <select style={sx.field} value={bairro} onChange={(e) => setBairro(e.target.value)}>
             <option value="">Bairro: todos</option>
-            {bairros.map((b) => (
-              <option key={b} value={b}>{b} ({listings.filter((d) => d.neighborhood === b).length})</option>
+            {bairros.map(([k, info]) => (
+              <option key={k} value={k}>{info.label} ({info.count})</option>
             ))}
           </select>
 
@@ -462,7 +491,7 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
                         {d.area_total_m2 ? <span style={sx.metaPill}>{fmtArea(d.area_total_m2)}</span> : null}
                       </div>
                       <div style={{ fontSize: 12, marginTop: 7, color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {d.neighborhood ?? "sem bairro"} · {d.agency}{isApprox(d) ? " · local. aprox." : ""}
+                        {bairroLabel(d)} · {d.agency}{isApprox(d) ? " · local. aprox." : ""}
                       </div>
                     </div>
                   </div>
@@ -537,7 +566,7 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
                 {sel.agency}
               </div>
               <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 2 }}>
-                {[sel.street, sel.neighborhood].filter(Boolean).join(", ") || "Endereço não informado"}
+                {[sel.street, sel.neighborhood ? bairroLabel(sel) : null].filter(Boolean).join(", ") || "Endereço não informado"}
                 {isApprox(sel) && " · localização aproximada"}
               </div>
 
