@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { normBairro } from "@/lib/neighborhood";
+import { normBairro, sortKeyBairro } from "@/lib/neighborhood";
 
 export interface Listing {
   id: string;
@@ -122,8 +122,13 @@ export default function Explorer({ listings, pois = [], chrome = "admin" }: { li
     }
     return out;
   }, [listings]);
+  // ordena por "núcleo" do nome (ignora prefixos como Balneário/Bal.), então
+  // grafias do mesmo bairro ficam vizinhas na lista sem se fundir.
   const bairros = useMemo(
-    () => [...bairroInfo.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label, "pt-BR")),
+    () => [...bairroInfo.entries()].sort((a, b) =>
+      sortKeyBairro(a[1].label).localeCompare(sortKeyBairro(b[1].label), "pt-BR")
+      || a[1].label.localeCompare(b[1].label, "pt-BR"),
+    ),
     [bairroInfo],
   );
   const bairroLabel = (d: Listing) => {
