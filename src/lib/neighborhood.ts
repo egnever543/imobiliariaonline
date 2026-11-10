@@ -12,3 +12,20 @@ export function normBairro(name: string): string {
     .trim()
     .replace(/\s+/g, " ");
 }
+
+// Prefixos comuns de bairro que variam/abreviam entre sites. Usados só para
+// ORDENAR por proximidade de nome (não para unir): "Bal. Itapema do Norte",
+// "Balneário Itapema do Norte" e "Itapema do Norte" ficam lado a lado.
+const BAIRRO_PREFIXOS = new Set([
+  "balneario", "bal", "jardim", "jd", "residencial", "resid", "loteamento",
+  "lot", "vila", "vl", "parque", "pq", "chacara", "chacaras", "nucleo",
+  "conjunto", "cj", "condominio", "cond", "praia",
+]);
+
+/** Chave de ORDENAÇÃO: o nome sem os prefixos iniciais comuns. */
+export function sortKeyBairro(name: string): string {
+  const words = normBairro(name).split(" ").filter(Boolean);
+  let i = 0;
+  while (i < words.length - 1 && BAIRRO_PREFIXOS.has(words[i])) i++;
+  return words.slice(i).join(" ");
+}
