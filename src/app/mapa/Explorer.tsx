@@ -16,6 +16,7 @@ export interface Listing {
   type: string | null;
   price: number | null;
   area_total_m2: number | null;
+  built_area_m2: number | null;
   bedrooms: number | null;
   bathrooms: number | null;
   suites: number | null;
@@ -56,8 +57,15 @@ const fmtPrice = (v: number | null) =>
 const shortPrice = (v: number | null) =>
   !v ? "—" : v >= 1e6 ? "R$ " + (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? "R$ " + Math.round(v / 1e3) + "k" : "R$ " + v;
 const fmtArea = (v: number | null) => (v ? v.toLocaleString("pt-BR") + " m²" : "");
-const perM2 = (d: Listing) =>
-  d.price && d.area_total_m2 ? Math.round(d.price / d.area_total_m2) : null;
+// terreno/sítio usam a área do lote; casa/apê usam a área CONSTRUÍDA quando
+// houver (R$/m² de construção), caindo na área total se faltar.
+const LAND_TYPE = /terreno|lote|s[ií]tio|ch[áa]cara|fazenda/i;
+const areaFor = (d: Listing): number | null =>
+  d.type && LAND_TYPE.test(d.type) ? d.area_total_m2 : d.built_area_m2 ?? d.area_total_m2;
+const perM2 = (d: Listing) => {
+  const a = areaFor(d);
+  return d.price && a ? Math.round(d.price / a) : null;
+};
 const isApprox = (d: Listing) =>
   d.geo_method === "bairro" || d.geo_method === "fallback" || (!d.street && !d.cep);
 
@@ -521,6 +529,7 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
                 {sel.suites ? <span style={sx.metaPill}>{sel.suites} suíte(s)</span> : null}
                 {sel.parking ? <span style={sx.metaPill}>{sel.parking} vaga(s)</span> : null}
                 {sel.area_total_m2 ? <span style={sx.metaPill}>{fmtArea(sel.area_total_m2)}</span> : null}
+                {sel.built_area_m2 ? <span style={sx.metaPill}>{fmtArea(sel.built_area_m2)} constr.</span> : null}
               </div>
               <div style={{ fontSize: 13, marginTop: 12, color: "var(--ink)", fontWeight: 600 }}>
                 {sel.agency}
