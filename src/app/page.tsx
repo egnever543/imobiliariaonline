@@ -49,8 +49,8 @@ export default async function Home() {
         </p>
 
         <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
-          <a href="/mapa" className="btn">Ver mapa</a>
-          <a href="/admin" className="btn btn-ghost">Painel</a>
+          <a href="/cadastro" className="btn">Criar conta</a>
+          <a href="/entrar" className="btn btn-ghost">Entrar</a>
         </div>
 
         {stats ? (
