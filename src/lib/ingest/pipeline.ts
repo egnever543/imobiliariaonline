@@ -11,25 +11,13 @@ import { extractListingLinks } from "./links";
 import { extractListing } from "./extract";
 import { normalizeListing } from "./normalize";
 import { geocode } from "./geocode";
-import { fetchListingSignals, mergeFill, EMPTY, type ListingStatus } from "./structured";
+import { fetchListingSignals, mergeFill, EMPTY, detectStatus, type ListingStatus } from "./structured";
 import { estimateCostUSD } from "./cost";
 import { enumerateFromSitemap } from "./sitemap";
 import { normalizeWebsite } from "./url";
 import { getServiceClient } from "../supabase/server";
 import type { AgencySource, CanonicalListing, ExtractedListing } from "./types";
 
-// Campos suficientes para NÃO precisar da IA (preço + área + tipo + quartos
-// quando for residencial). Ajustável.
-function hasEnough(m: ExtractedListing): boolean {
-  const hasArea = m.area_total_m2 != null || m.built_area_m2 != null;
-  const residential = !!m.type && !/terreno|comercial|s[ií]tio/i.test(m.type);
-  return (
-    m.price != null &&
-    hasArea &&
-    m.type != null &&
-    (!residential || m.bedrooms != null)
-  );
-}
 // Sem nada de útil -> não salva.
 function isEmpty(m: ExtractedListing): boolean {
   return (
@@ -188,55 +176,54 @@ export async function ingestOne(
       }
     }
 
-    // 1. Estruturado (grátis): JSON-LD + OpenGraph + microdados + pistas da URL
-    //    + situação (vendido/alugado/locação).
-    let via = "jsonld";
-    const signals = await fetchListingSignals(url);
-    const structured = signals?.listing ?? null;
-    const status: ListingStatus = signals?.status ?? "ativo";
-    let listing: ExtractedListing = structured ?? { ...EMPTY };
+    // 1. Lê a página (Jina) e extrai TUDO com a IA. É o caminho único de coleta.
+    let via = "ia";
     let model = "";
     let inputTokens = 0;
     let outputTokens = 0;
     let aiError: string | null = null;
+    let listing: ExtractedListing = { ...EMPTY };
+    let status: ListingStatus = "ativo";
 
-    // 2. IA barata só COMPLETA o que faltou (se faltar campo essencial).
-    //    Se a IA falhar (ex.: crédito Anthropic esgotado), NÃO perde o anúncio:
-    //    mantém o que o estruturado já trouxe e segue salvando (via "jsonld").
-    if (!structured || !hasEnough(structured)) {
-      try {
-        const adMd = await fetchReadable(url);
-        const r = await extractListing(adMd);
-        // mantém o que o estruturado trouxe; a IA preenche apenas os buracos
-        listing = mergeFill(listing, r.listing);
-        model = r.model;
-        inputTokens = r.inputTokens;
-        outputTokens = r.outputTokens;
-        via = "ia";
-      } catch (aiErr) {
-        // IA indisponível: fica só com o estruturado (se houver algo).
-        aiError = (aiErr as Error).message;
+    const adMd = await fetchReadable(url);
+    status = detectStatus(adMd, url); // situação pela mesma leitura (sem custo)
+    try {
+      const r = await extractListing(adMd);
+      if (r.listing) listing = r.listing;
+      model = r.model;
+      inputTokens = r.inputTokens;
+      outputTokens = r.outputTokens;
+    } catch (aiErr) {
+      aiError = (aiErr as Error).message;
+    }
+
+    // 2. Rede de segurança: se a IA falhou/veio vazia, tenta o estruturado
+    //    (grátis) só para não perder o anúncio — e pega a situação do HTML cru.
+    if (isEmpty(listing)) {
+      const sig = await fetchListingSignals(url);
+      if (sig) {
+        listing = mergeFill(listing, sig.listing);
+        status = sig.status;
+        if (!isEmpty(listing)) via = aiError ? "estruturado" : via;
       }
     }
 
     const estimatedCostUSD = estimateCostUSD(model, inputTokens, outputTokens);
 
     // registra o evento de uso (histórico de gastos) — não falha a coleta
-    if (via === "ia" || via === "jsonld") {
-      getServiceClient()
-        .from("usage_events")
-        .insert({
-          via,
-          model,
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          cost_usd: estimatedCostUSD,
-        })
-        .then(
-          () => {},
-          () => {},
-        );
-    }
+    getServiceClient()
+      .from("usage_events")
+      .insert({
+        via,
+        model,
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cost_usd: estimatedCostUSD,
+      })
+      .then(
+        () => {},
+        () => {},
+      );
 
     if (isEmpty(listing)) {
       return {

@@ -123,7 +123,10 @@ async function updateStale(db: DB, deadline: number, cap: number) {
 
 async function run(req: Request) {
   const url = new URL(req.url);
-  const phase = url.searchParams.get("phase") ?? "all";
+  // Padrão = só manutenção (barata, sem IA): revisita os ativos mais
+  // desatualizados e detecta preço/vendido/saiu do ar. A coleta de NOVOS
+  // (cara, com IA) é deliberada: use ?phase=new (ou ?phase=all) sob demanda.
+  const phase = url.searchParams.get("phase") ?? "update";
   const budgetMs = envNum("CRON_BUDGET_MS", 250_000);
   const newCap = envNum("CRON_NEW_CAP", 80);
   const updateCap = envNum("CRON_UPDATE_CAP", 400);

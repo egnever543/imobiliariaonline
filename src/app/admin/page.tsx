@@ -1,7 +1,7 @@
-// ── Painel de administração (hub) ─────────────────────────────────────
-// Dashboard analítico: indicadores, pendências/sugestões e atalhos para todas
-// as ferramentas, cada uma com um (i) explicando o que faz.
-// Server Component: lê os números do banco (tolerante a tabelas ausentes).
+// ── Painel de administração ───────────────────────────────────────────
+// Visão geral enxuta: indicadores da base, situação dos imóveis, pendências
+// e as poucas ferramentas que existem. Server Component (lê do banco, tolera
+// tabelas ausentes). Sem emoji, no padrão preto/branco/dourado.
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { selectAll } from "@/lib/supabase/paginate";
@@ -16,14 +16,12 @@ interface Metrics {
   listings: number;
   geoOk: number;
   noGeo: number;
-  noPrice: number;
   pois: number;
-  audited: number;
   spendTotal: number;
   spendToday: number;
   statuses: Record<string, number>;
-  activeListings: number; // status = ativo (base das pendências)
-  indispo: number;        // status = indisponivel (fora do ar)
+  activeListings: number;
+  indispo: number;
 }
 
 async function count(
@@ -49,37 +47,23 @@ async function load(): Promise<Metrics> {
   } catch {
     return {
       configured: false, cities: 0, agencies: 0, listings: 0, geoOk: 0,
-      noGeo: 0, noPrice: 0, pois: 0, audited: 0, spendTotal: 0, spendToday: 0,
+      noGeo: 0, pois: 0, spendTotal: 0, spendToday: 0,
       statuses: {}, activeListings: 0, indispo: 0,
     };
   }
 
-  const [cities, agencies, listings, geoOk, noPrice, noGeoActive, activeListings, pois] = await Promise.all([
+  const [cities, agencies, listings, geoOk, noGeoActive, activeListings, pois] = await Promise.all([
     count(db, "cities"),
     count(db, "agencies"),
     count(db, "listings"),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.not("lat", "is", null)),
-    // pendências contam só ATIVOS (vendido/indisponível não é tarefa a corrigir)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    count(db, "listings", (q: any) => q.is("price", null).eq("status", "ativo")),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.is("lat", null).eq("status", "ativo")),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     count(db, "listings", (q: any) => q.eq("status", "ativo")),
     count(db, "pois"),
   ]);
-
-  // imóveis já auditados (distintos) — paginado (PostgREST limita ~1.000/req)
-  let audited = 0;
-  try {
-    const rows = await selectAll<{ listing_id: string }>((from, to) =>
-      db.from("data_audits").select("listing_id").range(from, to),
-    );
-    audited = new Set(rows.map((r) => r.listing_id)).size;
-  } catch {
-    audited = 0;
-  }
 
   // distribuição por situação (ativo/vendido/alugado…) — paginado
   const statuses: Record<string, number> = {};
@@ -107,7 +91,7 @@ async function load(): Promise<Metrics> {
 
   return {
     configured: true, cities, agencies, listings, geoOk,
-    noGeo: noGeoActive, noPrice, pois, audited, spendTotal, spendToday, statuses,
+    noGeo: noGeoActive, pois, spendTotal, spendToday, statuses,
     activeListings, indispo: statuses["indisponivel"] ?? 0,
   };
 }
@@ -115,52 +99,30 @@ async function load(): Promise<Metrics> {
 const usd = (v: number) => "US$ " + (v < 1 ? v.toFixed(4) : v.toFixed(2));
 const n = (v: number) => v.toLocaleString("pt-BR");
 
-// rótulos e cores das situações (o resto cai em "outros")
 const STATUS_META: Record<string, { label: string; color: string }> = {
-  ativo: { label: "Ativos", color: "#16a34a" },
-  vendido: { label: "Vendidos", color: "#dc2626" },
-  alugado: { label: "Alugados", color: "#d97706" },
-  locacao: { label: "Locação", color: "#0891b2" },
-  reservado: { label: "Reservados", color: "#7c3aed" },
-  indisponivel: { label: "Indisponíveis", color: "#64748b" },
+  ativo: { label: "Ativos", color: "#4ea884" },
+  vendido: { label: "Vendidos", color: "#e5564b" },
+  alugado: { label: "Alugados", color: "#d79a4a" },
+  locacao: { label: "Locação", color: "#c9a24a" },
+  reservado: { label: "Reservados", color: "#b98cd8" },
+  indisponivel: { label: "Indisponíveis", color: "#8d8a82" },
 };
 const STATUS_ORDER = ["ativo", "vendido", "alugado", "locacao", "reservado", "indisponivel"];
 
-interface Tool {
-  href: string; icon: string; name: string; desc: string; info: string; step?: number;
-}
-interface ToolGroup { title: string; icon: string; hint?: string; tools: Tool[] }
+interface Tool { href: string; name: string; desc: string; info: string }
 
-// Ferramentas agrupadas por intenção (menos "parede de opções"):
-//  1) Adicionar imóveis — o fluxo para popular/ampliar a base (1·2·3)
-//  2) Manter a base — cuidar do que já foi coletado
-//  3) Entender — como o ranking é calculado
-// Ver a base (Mapa, Vitrine, Análise) fica no menu do topo — não repetido aqui.
-const TOOL_GROUPS: ToolGroup[] = [
+const TOOLS: Tool[] = [
   {
-    title: "Adicionar imóveis", icon: "➕", hint: "descobrir, coletar a cidade e adicionar um site — num fluxo só",
-    tools: [
-      { href: "/admin/coletar", icon: "📥", name: "Adicionar imóveis", desc: "Descobrir · coletar cidade · um site",
-        info: "Fluxo único para popular a base: você digita a cidade uma vez e escolhe a etapa por abas — 1) Descobrir imobiliárias (Google), 2) Coletar a cidade inteira, ou adicionar um site avulso. Mostra o custo da IA ao vivo." },
-    ],
+    href: "/admin/coletar", name: "Adicionar imóveis", desc: "Descobrir imobiliárias e coletar a cidade",
+    info: "Fluxo de coleta: você informa a cidade, o sistema descobre as imobiliárias, lê cada anúncio e a IA extrai os valores. Mostra o custo da IA ao vivo.",
   },
   {
-    title: "Manter a base", icon: "🛠", hint: "cuidar do que já foi coletado",
-    tools: [
-      { href: "/admin/auditoria", icon: "✅", name: "Revisar dados", desc: "Conferir grátis e revisar com IA",
-        info: "Numa esteira só: Passo 1 confere tudo de graça (re-lê o anúncio: preço, foto, situação, campos que faltavam, sem IA); Passo 2 usa a IA para revisar o que sobrou pendente ou divergente (campos, situação, praia). Em lote ou um a um." },
-      { href: "/admin/geo", icon: "📍", name: "Corrigir localização", desc: "Fixar no mapa imóveis sem coordenada",
-        info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto manualmente." },
-      { href: "/admin/comercios", icon: "🔥", name: "Comércios / mapa de calor", desc: "Coletar escola, farmácia, mercado…",
-        info: "Coleta os comércios que valorizam a região (OpenStreetMap, grátis). Alimenta o mapa de calor e a nota de vizinhança de cada imóvel." },
-    ],
+    href: "/admin/comercios", name: "Pontos de referência", desc: "Coletar hospital, escola, mercado…",
+    info: "Coleta os pontos de referência da região (OpenStreetMap, grátis) para aparecerem como referência no mapa.",
   },
   {
-    title: "Entender", icon: "📊",
-    tools: [
-      { href: "/admin/avaliacao", icon: "📊", name: "Como avaliamos", desc: "Entenda o ranking inteligente",
-        info: "Explica de onde vem a nota de cada imóvel: o preço justo por bairro, o fator de oferta, os comércios por perto, a praia e a confiança do dado. Bom para entender e explicar ao cliente." },
-    ],
+    href: "/admin/geo", name: "Corrigir localização", desc: "Fixar no mapa imóveis sem coordenada",
+    info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto.",
   },
 ];
 
@@ -177,27 +139,20 @@ function InfoDot({ text }: { text: string }) {
 export default async function AdminHub() {
   const m = await load();
 
-  // pendências (só aparecem quando existem de fato)
   const pend: { label: string; href: string; cta: string; tone: "warn" | "accent" }[] = [];
   if (!m.configured) {
     pend.push({ label: "Supabase não configurado — preencha as chaves no servidor.", href: "/admin", cta: "—", tone: "warn" });
   } else {
-    // pendências consideram só imóveis ATIVOS (vendido/indisponível não é tarefa)
     if (m.listings === 0) pend.push({ label: "Nenhum imóvel coletado ainda.", href: "/admin/coletar", cta: "Coletar", tone: "accent" });
     if (m.noGeo > 0) pend.push({ label: `${n(m.noGeo)} imóveis ativos sem localização no mapa.`, href: "/admin/geo", cta: "Corrigir", tone: "warn" });
-    const unreviewed = Math.max(0, m.activeListings - m.audited);
-    if (unreviewed > 0) pend.push({ label: `${n(unreviewed)} imóveis ativos ainda não revisados pela IA.`, href: "/admin/auditoria", cta: "Auditar", tone: "accent" });
-    if (m.noPrice > 0) pend.push({ label: `${n(m.noPrice)} imóveis ativos sem preço.`, href: "/admin/auditoria?falta=preco", cta: "Revisar", tone: "warn" });
-    if (m.listings > 0 && m.pois === 0) pend.push({ label: "Comércios ainda não coletados (mapa de calor vazio).", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
+    if (m.listings > 0 && m.pois === 0) pend.push({ label: "Pontos de referência ainda não coletados.", href: "/admin/comercios", cta: "Coletar", tone: "accent" });
   }
 
-  // Só os 4 KPIs que importam de relance. O resto (imobiliárias, cidades,
-  // comércios, gasto) sai da parede de cards: gasto vira uma linha discreta.
   const kpis: { label: string; value: string; sub?: string }[] = [
     { label: "Imóveis", value: n(m.listings) },
     { label: "Ativos (no mapa)", value: n(m.activeListings), sub: m.listings ? Math.round((m.activeListings / m.listings) * 100) + "%" : undefined },
     { label: "Com localização", value: n(m.geoOk), sub: m.listings ? Math.round((m.geoOk / m.listings) * 100) + "%" : undefined },
-    { label: "Revisados (IA)", value: n(m.audited), sub: m.listings ? Math.round((m.audited / m.listings) * 100) + "%" : undefined },
+    { label: "Pontos de referência", value: n(m.pois) },
   ];
 
   return (
@@ -207,7 +162,7 @@ export default async function AdminHub() {
         <span className="chip">Painel</span>
         <h1 style={{ fontSize: 30, margin: "12px 0 4px" }}>Central de gestão</h1>
         <p style={{ color: "var(--muted)", marginTop: 0, fontSize: 15 }}>
-          Visão geral da base, pendências e todas as ferramentas num só lugar.
+          Visão geral da base e as ferramentas de coleta e manutenção.
         </p>
 
         {/* KPIs */}
@@ -223,11 +178,10 @@ export default async function AdminHub() {
           ))}
         </div>
 
-        {/* Linha discreta: números secundários que antes eram cards */}
+        {/* Linha discreta: números secundários */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px", marginTop: 10, fontSize: 12.5, color: "var(--muted)" }}>
           <span>{n(m.agencies)} imobiliárias</span><span>·</span>
           <span>{n(m.cities)} cidades</span><span>·</span>
-          <span>{n(m.pois)} comércios</span><span>·</span>
           <span>Gasto IA: <strong style={{ color: "var(--ink)" }}>{usd(m.spendTotal)}</strong> total · {usd(m.spendToday)} hoje</span>
         </div>
 
@@ -240,33 +194,26 @@ export default async function AdminHub() {
             const ia = STATUS_ORDER.indexOf(a[0]); const ib = STATUS_ORDER.indexOf(b[0]);
             return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
           });
-          const colorOf = (k: string) => STATUS_META[k]?.color ?? "#94a3b8";
+          const colorOf = (k: string) => STATUS_META[k]?.color ?? "#8d8a82";
           const labelOf = (k: string) => STATUS_META[k]?.label ?? k;
           return (
             <section style={{ marginTop: 28 }}>
               <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>
                 Situação dos imóveis{" "}
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>
-                  · só os ativos vão pro mapa
-                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>· só os ativos vão pro mapa</span>
               </h2>
               <div className="card" style={{ padding: 16 }}>
-                {/* barra proporcional */}
                 <div style={{ display: "flex", height: 10, borderRadius: 999, overflow: "hidden", background: "var(--border)" }}>
                   {ordered.map(([k, c]) => (
-                    <div key={k} title={`${labelOf(k)}: ${n(c)}`}
-                      style={{ width: `${(c / totalS) * 100}%`, background: colorOf(k) }} />
+                    <div key={k} title={`${labelOf(k)}: ${n(c)}`} style={{ width: `${(c / totalS) * 100}%`, background: colorOf(k) }} />
                   ))}
                 </div>
-                {/* legenda */}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 20px", marginTop: 14 }}>
                   {ordered.map(([k, c]) => (
                     <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 10, height: 10, borderRadius: 3, background: colorOf(k), flexShrink: 0 }} />
                       <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{n(c)}</span>
-                      <span style={{ fontSize: 13, color: "var(--muted)" }}>
-                        {labelOf(k)} · {Math.round((c / totalS) * 100)}%
-                      </span>
+                      <span style={{ fontSize: 13, color: "var(--muted)" }}>{labelOf(k)} · {Math.round((c / totalS) * 100)}%</span>
                     </div>
                   ))}
                 </div>
@@ -275,16 +222,16 @@ export default async function AdminHub() {
           );
         })()}
 
-        {/* Pendências e sugestões */}
+        {/* Pendências */}
         <section style={{ marginTop: 28 }}>
           <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>
-            Pendências e sugestões {pend.length > 0 && (
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--warn)", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>{pend.length}</span>
+            Pendências {pend.length > 0 && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--on-accent)", background: "var(--warn)", borderRadius: 999, padding: "1px 8px", verticalAlign: "middle" }}>{pend.length}</span>
             )}
           </h2>
           {pend.length === 0 ? (
             <div className="card" style={{ padding: 16, color: "var(--muted)", fontSize: 14 }}>
-              ✅ Tudo em dia — nenhuma pendência detectada.
+              Tudo em dia — nenhuma pendência detectada.
             </div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
@@ -292,63 +239,40 @@ export default async function AdminHub() {
                 <div key={i} className="card" style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 99, background: p.tone === "warn" ? "var(--warn)" : "var(--accent)", flexShrink: 0 }} />
                   <span style={{ flex: 1, fontSize: 14 }}>{p.label}</span>
-                  {p.cta !== "—" && <a href={p.href} className="btn" style={{ padding: "6px 14px", fontSize: 13 }}>{p.cta} →</a>}
+                  {p.cta !== "—" && <a href={p.href} className="btn" style={{ padding: "6px 14px", fontSize: 13 }}>{p.cta}</a>}
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        {/* Fora do ar (indisponíveis) — separado das pendências: não é tarefa a corrigir */}
+        {/* Fora do ar */}
         {m.indispo > 0 && (
           <section style={{ marginTop: 20 }}>
             <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Fora do ar</h2>
             <div className="card" style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 16 }}>🚫</span>
               <span style={{ flex: 1, fontSize: 14 }}>
-                {n(m.indispo)} imóveis <strong>indisponíveis</strong> (anúncio saiu do ar).
-                Ficam no histórico, fora do mapa — não são pendência.
+                {n(m.indispo)} imóveis <strong>indisponíveis</strong> (anúncio saiu do ar). Ficam no histórico, fora do mapa.
               </span>
-              <a href="/imoveis" className="btn" style={{ padding: "6px 14px", fontSize: 13, background: "var(--paper)", color: "var(--ink)", border: "1px solid var(--border)" }}>
-                Ver na vitrine →
-              </a>
             </div>
           </section>
         )}
 
-        {/* Ferramentas — agrupadas por intenção */}
+        {/* Ferramentas */}
         <section style={{ marginTop: 28 }}>
           <h2 style={{ fontSize: 16, margin: "0 0 4px" }}>Ferramentas</h2>
           <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 14px" }}>
-            Ver a base (Mapa, Vitrine, Análise) fica no menu do topo. Passe o mouse no <span style={{ fontStyle: "italic" }}>(i)</span> para o que cada uma faz.
+            Ver a base fica no <strong>Mapa</strong> (menu do topo). Passe o mouse no <span style={{ fontStyle: "italic" }}>(i)</span> para o que cada uma faz.
           </p>
-          <div style={{ display: "grid", gap: 20 }}>
-            {TOOL_GROUPS.map((g) => (
-              <div key={g.title}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700 }}>{g.icon} {g.title}</span>
-                  {g.hint && <span style={{ fontSize: 12, color: "var(--muted)" }}>· {g.hint}</span>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+            {TOOLS.map((t) => (
+              <a key={t.href} href={t.href} className="card" style={{ padding: 16, textDecoration: "none", color: "var(--ink)", display: "block" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{t.name}</span>
+                  <InfoDot text={t.info} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-                  {g.tools.map((t) => (
-                    <a key={t.href} href={t.href} className="card"
-                      style={{ padding: 16, textDecoration: "none", color: "var(--ink)", display: "block" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        {t.step != null && (
-                          <span style={{
-                            display: "inline-grid", placeItems: "center", width: 20, height: 20, flexShrink: 0,
-                            borderRadius: 99, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 800,
-                          }}>{t.step}</span>
-                        )}
-                        <span style={{ fontSize: 20 }}>{t.icon}</span>
-                        <span style={{ fontWeight: 700, fontSize: 15, flex: 1 }}>{t.name}</span>
-                        <InfoDot text={t.info} />
-                      </div>
-                      <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{t.desc}</div>
-                    </a>
-                  ))}
-                </div>
-              </div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{t.desc}</div>
+              </a>
             ))}
           </div>
         </section>

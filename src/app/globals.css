@@ -1,59 +1,39 @@
 /* ─────────────────────────────────────────────────────────────
-   Design system — Radar Imobiliário (SaaS branco/azul)
+   Design system — Radar Imobiliário
+   Identidade: preto · branco · dourado. Minimalista, tema escuro.
    Todas as telas usam estes tokens; mudar aqui muda o app inteiro.
+   Para um futuro tema claro, basta preencher :root[data-theme="light"].
    ───────────────────────────────────────────────────────────── */
 :root {
-  /* superfícies */
-  --bg: #f4f7fc;
-  --paper: #ffffff;
-  --paper-2: #f8fafd;
-  --ink: #0f1e34;
-  --muted: #607089;
-  --border: #e4eaf3;
+  color-scheme: dark;
 
-  /* marca (azul) */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-weak: #eef4ff;
-  --accent-ink: #1b47b8;
+  /* superfícies (preto / grafite) */
+  --bg: #0a0a0b;
+  --paper: #141416;
+  --paper-2: #1b1b1e;
+  --ink: #f4f1ea; /* branco quente */
+  --muted: #9a968c; /* cinza quente */
+  --border: #2a2a2e;
 
-  /* estados */
-  --ok: #0f9d76;
-  --warn: #c2711c;
-  --danger: #d4443b;
+  /* marca (dourado) */
+  --accent: #d6b25e;
+  --accent-hover: #ecc877;
+  --accent-weak: #201d16; /* superfície dourada discreta no escuro */
+  --accent-ink: #e8cd84; /* texto dourado sobre escuro */
+  --on-accent: #1a1710; /* texto sobre o dourado (quase preto) */
+
+  /* estados (vermelho reservado para alerta real) */
+  --ok: #4ea884;
+  --warn: #d79a4a;
+  --danger: #e5564b;
 
   /* efeitos */
-  --ring: 0 0 0 3px rgba(37, 99, 235, 0.28);
-  --shadow-sm: 0 1px 2px rgba(15, 30, 52, 0.06);
-  --shadow: 0 8px 24px -10px rgba(15, 30, 52, 0.18), 0 2px 6px rgba(15, 30, 52, 0.05);
-  --shadow-lg: 0 24px 60px -20px rgba(15, 30, 52, 0.28);
+  --ring: 0 0 0 3px rgba(214, 178, 94, 0.3);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.8);
   --radius: 14px;
   --radius-sm: 9px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0a1120;
-    --paper: #111c31;
-    --paper-2: #0e1728;
-    --ink: #e8eefb;
-    --muted: #93a4c0;
-    --border: #1e2b45;
-
-    --accent: #5b93ff;
-    --accent-hover: #7aa8ff;
-    --accent-weak: #14203a;
-    --accent-ink: #a9c6ff;
-
-    --ok: #35c79b;
-    --warn: #e0a24c;
-    --danger: #ff6b61;
-
-    --ring: 0 0 0 3px rgba(91, 147, 255, 0.35);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.7);
-  }
 }
 
 * {
@@ -67,9 +47,7 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(1200px 600px at 100% -10%, var(--accent-weak) 0%, transparent 55%),
-    var(--bg);
+  background: var(--bg);
   color: var(--ink);
   font-family:
     var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
@@ -122,7 +100,7 @@ button {
     opacity 0.15s ease;
 }
 button:not(:disabled):hover {
-  filter: brightness(1.05);
+  filter: brightness(1.06);
 }
 button:not(:disabled):active {
   transform: translateY(1px);
@@ -130,7 +108,7 @@ button:not(:disabled):active {
 
 ::selection {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Scrollbar discreta (webkit) */
@@ -157,7 +135,7 @@ button:not(:disabled):active {
   box-shadow: var(--shadow-sm);
 }
 
-/* botão primário e secundário como classes (para novas telas) */
+/* botão primário e secundário como classes */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -167,9 +145,9 @@ button:not(:disabled):active {
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
@@ -177,7 +155,7 @@ button:not(:disabled):active {
   background: var(--accent-hover);
 }
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .btn-ghost {
@@ -193,7 +171,7 @@ button:not(:disabled):active {
   filter: none;
 }
 
-/* chip / badge */
+/* chip / etiqueta */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -204,19 +182,20 @@ button:not(:disabled):active {
   color: var(--accent-ink);
   font-size: 12px;
   font-weight: 600;
+  border: 1px solid var(--border);
 }
 
-/* ── Mapa tema escuro (sem chave): inverte os tiles claros do OSM ── */
+/* ── Mapa (Leaflet) tema escuro ───────────────────────────────── */
 .leaflet-container {
-  background: #0a1120;
+  background: var(--bg);
   font: inherit;
 }
+/* fallback OSM claro → escurece os tiles quando não há chave CARTO */
 .leaflet-tile.map-dark {
   filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9)
-    saturate(0.8);
+    saturate(0.75);
 }
 
-/* Popups e controles no estilo do app */
 .leaflet-popup-content-wrapper {
   border-radius: 12px;
   box-shadow: var(--shadow-lg);

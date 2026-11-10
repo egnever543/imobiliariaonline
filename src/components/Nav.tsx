@@ -5,8 +5,6 @@
 import Link from "next/link";
 
 const links = [
-  { href: "/analise", label: "Análise" },
-  { href: "/imoveis", label: "Imóveis" },
   { href: "/mapa", label: "Mapa" },
   { href: "/admin", label: "Painel" },
 ];
@@ -34,7 +32,7 @@ export function Brand({ size = 20 }: { size?: number }) {
           height: size + 8,
           borderRadius: 8,
           background: "var(--accent)",
-          color: "#fff",
+          color: "var(--on-accent)",
           boxShadow: "var(--shadow-sm)",
         }}
       >
