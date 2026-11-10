@@ -98,7 +98,7 @@ function Photo({
   );
 }
 
-export default function Explorer({ listings, pois = [] }: { listings: Listing[]; pois?: PoiPoint[] }) {
+export default function Explorer({ listings, pois = [], chrome = "admin" }: { listings: Listing[]; pois?: PoiPoint[]; chrome?: "admin" | "conta" }) {
   const bairros = useMemo(
     () => [...new Set(listings.map((d) => d.neighborhood).filter(Boolean))].sort() as string[],
     [listings],
@@ -389,7 +389,9 @@ export default function Explorer({ listings, pois = [] }: { listings: Listing[];
         </div>
 
         <div style={{ flex: 1 }} />
-        <a href="/admin" style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>Painel</a>
+        <a href={chrome === "conta" ? "/conta" : "/admin"} style={{ fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>
+          {chrome === "conta" ? "Conta" : "Painel"}
+        </a>
       </header>
 
       {/* alternância Lista/Mapa (só no celular) */}

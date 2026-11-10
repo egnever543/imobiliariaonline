@@ -117,6 +117,10 @@ const TOOLS: Tool[] = [
     info: "Fluxo de coleta: você informa a cidade, o sistema descobre as imobiliárias, lê cada anúncio e a IA extrai os valores. Mostra o custo da IA ao vivo.",
   },
   {
+    href: "/admin/solicitacoes", name: "Solicitações de cidade", desc: "Pedidos de clientes para novas cidades",
+    info: "Cidades pedidas por clientes no cadastro que ainda não estão na base. Aprove para criar a cidade e liberar o cliente (trial); depois colete os imóveis em Adicionar imóveis.",
+  },
+  {
     href: "/admin/comercios", name: "Pontos de referência", desc: "Coletar hospital, escola, mercado…",
     info: "Coleta os pontos de referência da região (OpenStreetMap, grátis) para aparecerem como referência no mapa.",
   },
