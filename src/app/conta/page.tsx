@@ -103,6 +103,20 @@ export default function Conta() {
             </div>
           </section>
 
+          {/* Marketing */}
+          <section style={{ marginTop: 28 }}>
+            <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Marketing</h2>
+            <div className="card" style={{ padding: 16, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>Calendário de posts</div>
+                <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+                  Gere um cronograma de posts a partir dos seus imóveis e ajuste o que quiser.
+                </div>
+              </div>
+              <a href="/marketing" className="btn" style={{ padding: "8px 14px", fontSize: 13 }}>Abrir</a>
+            </div>
+          </section>
+
           {/* Plano / cobrança (base Stripe — ainda não ativa) */}
           <section style={{ marginTop: 28 }}>
             <h2 style={{ fontSize: 16, margin: "0 0 10px" }}>Plano</h2>
