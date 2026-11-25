@@ -128,6 +128,10 @@ const TOOLS: Tool[] = [
     href: "/admin/geo", name: "Corrigir localização", desc: "Fixar no mapa imóveis sem coordenada",
     info: "Lista imóveis sem posição no mapa. Você ajusta o endereço e re-geocodifica, ou clica no mapa para fixar o ponto.",
   },
+  {
+    href: "/admin/canva", name: "Conectar Canva", desc: "Autorizar a geração de artes (marketing)",
+    info: "Conecta a conta Canva da plataforma (OAuth) para o braço de marketing gerar as artes dos posts automaticamente (autofill de brand template + export).",
+  },
 ];
 
 function InfoDot({ text }: { text: string }) {
