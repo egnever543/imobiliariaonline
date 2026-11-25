@@ -94,6 +94,14 @@ export default function Marketing() {
   async function saveCaption(id: string, caption: string) {
     await authFetch("/api/marketing/calendar", { method: "PATCH", body: JSON.stringify({ id, caption }) });
   }
+  async function gerarArte(id: string) {
+    setMsg("Gerando a arte no Canva… (pode levar alguns segundos)");
+    const res = await authFetch("/api/marketing/generate-art", { method: "POST", body: JSON.stringify({ postId: id }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { setMsg("Erro na arte: " + (j.error ?? "falha")); return; }
+    setMsg("Arte gerada.");
+    await loadAll();
+  }
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 24px 96px" }}>
@@ -157,7 +165,7 @@ export default function Marketing() {
                 {posts.map((p) => (
                   <PostCard key={p.id} post={p} brand={brand}
                     onTrocar={() => trocar(p.id)} onRemover={() => remover(p.id)}
-                    onCaption={(c) => saveCaption(p.id, c)} />
+                    onCaption={(c) => saveCaption(p.id, c)} onGerarArte={() => gerarArte(p.id)} />
                 ))}
               </div>
             )}
@@ -168,11 +176,12 @@ export default function Marketing() {
   );
 }
 
-function PostCard({ post, brand, onTrocar, onRemover, onCaption }: {
-  post: Post; brand: Brand; onTrocar: () => void; onRemover: () => void; onCaption: (c: string) => void;
+function PostCard({ post, brand, onTrocar, onRemover, onCaption, onGerarArte }: {
+  post: Post; brand: Brand; onTrocar: () => void; onRemover: () => void; onCaption: (c: string) => void; onGerarArte: () => Promise<void>;
 }) {
   const l = post.listing;
   const [caption, setCaption] = useState(post.caption ?? "");
+  const [gerando, setGerando] = useState(false);
   const color = brand.primary_color || "#d6b25e";
   const specs = [l?.bedrooms ? `${l.bedrooms} quartos` : "", l?.parking ? `${l.parking} vagas` : "",
     l?.area_total_m2 || l?.built_area_m2 ? `${(l?.area_total_m2 ?? l?.built_area_m2)!.toLocaleString("pt-BR")} m²` : ""].filter(Boolean);
@@ -181,7 +190,17 @@ function PostCard({ post, brand, onTrocar, onRemover, onCaption }: {
     <div className="card" style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{fmtDate(post.scheduled_for)}</div>
 
-      {/* preview estilo post (quadrado) */}
+      {/* arte final do Canva, quando já gerada */}
+      {post.art_url && (
+        <div style={{ position: "relative", aspectRatio: "1 / 1", borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={post.art_url} alt="arte do post" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          <span style={{ position: "absolute", top: 8, right: 8, background: "var(--ok)", color: "#06281c", fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6 }}>arte Canva</span>
+        </div>
+      )}
+
+      {/* preview estilo post (quadrado) — enquanto a arte do Canva não foi gerada */}
+      {!post.art_url && (
       <div style={{ position: "relative", aspectRatio: "1 / 1", borderRadius: 10, overflow: "hidden", background: "var(--paper-2)", border: "1px solid var(--border)" }}>
         {l?.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -206,13 +225,19 @@ function PostCard({ post, brand, onTrocar, onRemover, onCaption }: {
           </div>
         </div>
       </div>
+      )}
 
       {/* legenda editável */}
       <textarea value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={() => onCaption(caption)} rows={3}
         style={{ ...input, resize: "vertical", fontSize: 12.5, lineHeight: 1.4 }} />
 
+      <button className="btn" style={{ padding: "7px 10px", fontSize: 12.5 }} disabled={gerando}
+        onClick={async () => { setGerando(true); await onGerarArte(); setGerando(false); }}>
+        {gerando ? "Gerando arte…" : post.art_url ? "Refazer arte" : "Gerar arte"}
+      </button>
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="btn btn-ghost" style={{ flex: 1, padding: "6px 10px", fontSize: 12.5 }} onClick={onTrocar}>Trocar imóvel</button>
+        <button className="btn btn-ghost" style={{ flex: 1, padding: "6px 10px", fontSize: 12.5 }} onClick={onTrocar}>Trocar</button>
+        {post.art_url && <a className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 12.5 }} href={post.art_url} target="_blank" rel="noreferrer">Baixar</a>}
         {l && <a className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 12.5 }} href={l.source_url} target="_blank" rel="noreferrer">Anúncio</a>}
         <button className="btn btn-ghost" style={{ padding: "6px 10px", fontSize: 12.5, color: "var(--danger)" }} onClick={onRemover}>✕</button>
       </div>
