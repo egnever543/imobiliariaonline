@@ -6,7 +6,11 @@
 import { useEffect, useState, useCallback } from "react";
 import Nav from "@/components/Nav";
 
-interface Status { configured: boolean; hasRedirect: boolean; hasTemplate: boolean; connected: boolean }
+interface Peek { start: string; len: number; ws: boolean }
+interface Status {
+  configured: boolean; hasRedirect: boolean; hasTemplate: boolean; connected: boolean;
+  previews?: { clientId: Peek | null; secret: Peek | null; redirect: Peek | null; template: Peek | null; scopes: string };
+}
 
 export default function CanvaAdmin() {
   const [token, setToken] = useState("");
@@ -30,11 +34,19 @@ export default function CanvaAdmin() {
 
   function saveToken(v: string) { setToken(v); localStorage.setItem("admin_token", v); }
 
-  const Row = ({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0" }}>
-      <span style={{ width: 10, height: 10, borderRadius: 99, background: ok ? "var(--ok)" : "var(--danger)", flexShrink: 0 }} />
-      <span style={{ fontSize: 14 }}>{label}</span>
-      {!ok && hint && <span style={{ fontSize: 12, color: "var(--muted)" }}>· {hint}</span>}
+  const Row = ({ ok, label, hint, value, warn }: { ok: boolean; label: string; hint?: string; value?: string; warn?: boolean }) => (
+    <div style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ width: 10, height: 10, borderRadius: 99, background: ok ? "var(--ok)" : "var(--danger)", flexShrink: 0 }} />
+        <span style={{ fontSize: 14 }}>{label}</span>
+        {!ok && hint && <span style={{ fontSize: 12, color: "var(--muted)" }}>· {hint}</span>}
+      </div>
+      {value && (
+        <div style={{ marginLeft: 20, marginTop: 4, fontSize: 12.5, color: "var(--muted)", fontFamily: "ui-monospace, monospace", wordBreak: "break-all" }}>
+          {value}
+          {warn && <span style={{ color: "var(--danger)", marginLeft: 8, fontFamily: "inherit" }}>⚠ tem espaço/quebra de linha extra — reescreva o valor limpo</span>}
+        </div>
+      )}
     </div>
   );
 
@@ -59,9 +71,16 @@ export default function CanvaAdmin() {
 
         {st && (
           <div className="card" style={{ padding: 16, marginTop: 16 }}>
-            <Row ok={st.configured} label="Credenciais do app (CLIENT_ID / SECRET)" hint="defina na Vercel" />
-            <Row ok={st.hasRedirect} label="Redirect URI (CANVA_REDIRECT_URI)" hint="igual ao registrado no app Canva" />
-            <Row ok={st.hasTemplate} label="Brand template (CANVA_BRAND_TEMPLATE_ID)" hint="o modelo da arte" />
+            <Row ok={st.configured && !!st.previews?.clientId} label="Client ID (CANVA_CLIENT_ID)" hint="defina na Vercel"
+              value={st.previews?.clientId ? `${st.previews.clientId.start}…   (${st.previews.clientId.len} caracteres)` : undefined}
+              warn={st.previews?.clientId?.ws} />
+            <Row ok={st.configured && !!st.previews?.secret} label="Client Secret (CANVA_CLIENT_SECRET)" hint="defina na Vercel"
+              value={st.previews?.secret ? `${st.previews.secret.start}…   (${st.previews.secret.len} caracteres)` : undefined}
+              warn={st.previews?.secret?.ws} />
+            <Row ok={st.hasRedirect} label="Redirect URI (CANVA_REDIRECT_URI)" hint="idêntico ao do app Canva"
+              value={st.previews?.redirect?.start || undefined} warn={st.previews?.redirect?.ws} />
+            <Row ok={st.hasTemplate} label="Brand template (CANVA_BRAND_TEMPLATE_ID)" hint="o modelo da arte"
+              value={st.previews?.template?.start || undefined} warn={st.previews?.template?.ws} />
             <Row ok={st.connected} label="Conta Canva autorizada" hint="clique em Conectar" />
 
             <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
